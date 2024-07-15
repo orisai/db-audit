@@ -1,0 +1,5 @@
+todo
+- vygenerovat report
+- report pro strukturální analýzu uložit do baseline
+- datovou taky? ale do jiné, je specifický pro instanci
+- odlišovat různé databáze (ale na různých prostředích můžou být jinak pojmenované)

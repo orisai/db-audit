@@ -1,0 +1,62 @@
+{
+	"name": "orisai/db-audit",
+	"description": "SQL database analysis for common errors in structure, data and configuration",
+	"keywords": [
+		"analysis",
+		"audit",
+		"database",
+		"mariadb",
+		"mysql",
+		"orisai",
+		"sql"
+	],
+	"type": "library",
+	"license": "MPL-2.0",
+	"homepage": "https://github.com/orisai/db-audit",
+	"authors": [
+		{
+			"name": "Marek Bartoš",
+			"homepage": "https://github.com/mabar"
+		}
+	],
+	"require": {
+		"php": "7.4 - 8.3",
+		"orisai/exceptions": "^1.0.0",
+		"symfony/polyfill-php80": "^1.30"
+	},
+	"require-dev": {
+		"brianium/paratest": "^6.3.0",
+		"dg/dibi": "^4.0.0|^5.0.0",
+		"infection/infection": "^0.26.0|^0.27.0|^0.28.0|^0.29.0",
+		"jetbrains/phpstorm-attributes": "^1.1",
+		"nextras/dbal": "^1.0.0|^4.0.0|^5.0.0",
+		"orisai/coding-standard": "^3.0.0",
+		"phpstan/extension-installer": "^1.0.0",
+		"phpstan/phpstan": "^1.0.0",
+		"phpstan/phpstan-deprecation-rules": "^1.0.0",
+		"phpstan/phpstan-phpunit": "^1.0.0",
+		"phpstan/phpstan-strict-rules": "^1.0.0",
+		"phpunit/phpunit": "^9.5.0",
+		"staabm/annotate-pull-request-from-checkstyle": "^1.7.0"
+	},
+	"autoload": {
+		"psr-4": {
+			"Orisai\\DbAudit\\": "src"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"Tests\\Orisai\\DbAudit\\": "tests"
+		}
+	},
+	"minimum-stability": "dev",
+	"prefer-stable": true,
+	"config": {
+		"sort-packages": true,
+		"allow-plugins": {
+			"dealerdirect/phpcodesniffer-composer-installer": true,
+			"infection/extension-installer": true,
+			"phpstan/extension-installer": true
+		}
+	}
+}

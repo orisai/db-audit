@@ -1,0 +1,116 @@
+parameters:
+	ignoreErrors:
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\DibiAdapter\\:\\:escapeBool\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\DibiAdapter\\:\\:escapeDateTime\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\DibiAdapter\\:\\:escapeIdentifier\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\DibiAdapter\\:\\:escapeInt\\(\\) should return literal\\-string but returns numeric\\-string\\.$#"
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\DibiAdapter\\:\\:escapeString\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\DibiAdapter\\:\\:exec\\(\\) should return int\\<0, max\\> but returns int\\.$#"
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\DibiAdapter\\:\\:query\\(\\) should return list\\<array\\<string, mixed\\>\\> but returns array\\<array\\|Dibi\\\\Row\\>\\.$#"
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:convertToSql\\(\\)\\.$#"
+			count: 4
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Platforms\\\\IPlatform\\:\\:formatBool\\(\\)\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Platforms\\\\IPlatform\\:\\:formatDateTime\\(\\)\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Platforms\\\\IPlatform\\:\\:formatIdentifier\\(\\)\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Call to function method_exists\\(\\) with Nextras\\\\Dbal\\\\Drivers\\\\IDriver and 'convertBoolToSql' will always evaluate to true\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeBool\\(\\) should return literal\\-string but returns mixed\\.$#"
+			count: 2
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeBool\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeDateTime\\(\\) should return literal\\-string but returns mixed\\.$#"
+			count: 2
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeDateTime\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeIdentifier\\(\\) should return literal\\-string but returns mixed\\.$#"
+			count: 2
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeIdentifier\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeInt\\(\\) should return literal\\-string but returns numeric\\-string\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeString\\(\\) should return literal\\-string but returns mixed\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:escapeString\\(\\) should return literal\\-string but returns string\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:exec\\(\\) should return int\\<0, max\\> but returns int\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Dbal\\\\NextrasAdapter\\:\\:query\\(\\) should return list\\<array\\<string, mixed\\>\\> but returns array\\<int, array\\<string, mixed\\>\\>\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
