@@ -1,0 +1,26 @@
+<?php declare(strict_types = 1);
+
+namespace Orisai\DbAudit\Auditor;
+
+use Orisai\DbAudit\Analyser;
+use Orisai\DbAudit\AnalyserCategory;
+use Orisai\DbAudit\Dbal\DbalAdapter;
+
+abstract class NullableWithNoNullsAuditor implements Analyser
+{
+
+	use MysqlFamilySupport;
+
+	protected DbalAdapter $dbal;
+
+	public function __construct(DbalAdapter $dbal)
+	{
+		$this->dbal = $dbal;
+	}
+
+	public function getCategory(): AnalyserCategory
+	{
+		return AnalyserCategory::data();
+	}
+
+}

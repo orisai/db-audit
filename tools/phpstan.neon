@@ -1,0 +1,48 @@
+includes:
+	- ../vendor/phpstan/phpstan/conf/bleedingEdge.neon
+	- phpstan.baseline.neon
+
+parameters:
+	phpVersion: 80400
+	level: 8
+	tmpDir: ../var/tools/PHPStan
+	resultCachePath: %currentWorkingDirectory%/var/tools/PHPStan/resultCache.php
+
+	checkBenevolentUnionTypes: true
+	checkMissingCallableSignature: true
+	checkInternalClassCaseSensitivity: true
+	checkTooWideReturnTypesInProtectedAndPublicMethods: true
+	reportAnyTypeWideningInVarTag: true
+	reportPossiblyNonexistentConstantArrayOffset: true
+
+	exceptions:
+		check:
+			missingCheckedExceptionInThrows: true
+			tooWideThrowType: true
+		checkedExceptionClasses:
+			- Orisai\Exceptions\Check\CheckedException
+
+	ignoreErrors:
+		# Database queries are not analysed
+		-
+			message: "#^Method (.+)Auditor\\:\\:getRecords\\(\\) should return list\\<array\\{(.+)\\}\\> but returns list\\<array\\<string, mixed\\>\\>\\.$#"
+			path: ../src/Auditor
+		-
+			message: "#^Method (.+)Auditor\\:\\:getChecks\\(\\) should return list\\<array\\{(.+)\\}\\> but returns list\\<array\\<string, mixed\\>\\>\\.$#"
+			path: ../src/Auditor/BoolLikeColumnMysqlAuditor.php
+		# Schema provider returns shaped rows from unanalysed database queries
+		-
+			message: "#^Method Orisai\\\\DbAudit\\\\Schema\\\\SchemaProvider\\:\\:get[A-Za-z]+\\(\\) should return list\\<array\\{(.+)\\}\\> but returns list\\<array\\<string, mixed\\>\\>\\.$#"
+			path: ../src/Schema/SchemaProvider.php
+		# The per-column classification probe interpolates escapeIdentifier()-quoted names, so the assembled SQL is asserted literal for replay
+		-
+			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-falsy-string\\.$#"
+			path: ../src/Auditor/Latin1EncodingMysqlAuditor.php
+		# Migration SQL is split into statements then asserted as literal for replay in the round-trip test
+		-
+			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-empty-string\\.$#"
+			path: ../tests/Integration/Auditor/OutdatedCollationMysqlAuditorTest.php
+		# The shared applyScript() helper replays generated migration SQL statement-by-statement in round-trip tests
+		-
+			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-empty-string\\.$#"
+			path: ../tests/Helper/MysqlShortcuts.php

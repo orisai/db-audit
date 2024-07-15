@@ -1,0 +1,26 @@
+version: "3"
+
+services:
+  mysql:
+    image: "mysql:${ORISAI_DBAUDIT_MYSQL_VERSION:-8.0}"
+    container_name: orisai-dbaudit-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "127.0.0.1:${ORISAI_DBAUDIT_MYSQL_PORT:-35306}:3306"
+
+  mariadb:
+    image: "mariadb:${ORISAI_DBAUDIT_MARIADB_VERSION:-11.4}"
+    container_name: orisai-dbaudit-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    ports:
+      - "127.0.0.1:${ORISAI_DBAUDIT_MARIADB_PORT:-35307}:3306"
+
+volumes:
+  mysql-data:
+  mariadb-data:

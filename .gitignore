@@ -1,0 +1,15 @@
+# Environment
+/.env
+
+# IDE
+/.idea
+
+# Composer
+/vendor
+/composer.lock
+
+# Generated
+/var
+
+# Superpowers
+/docs/superpowers

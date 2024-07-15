@@ -1,0 +1,157 @@
+parameters:
+	ignoreErrors:
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\DibiAdapter::escapeBool() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\DibiAdapter::escapeDateTime() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\DibiAdapter::escapeIdentifier() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\DibiAdapter::escapeInt() should return literal-string but returns decimal-int-string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\DibiAdapter::escapeString() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\DibiAdapter::exec() should return int<0, max> but returns int.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\DibiAdapter::query() should return list<array<string, mixed>> but returns list<Dibi\Row&iterable>.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/DibiAdapter.php
+
+		-
+			rawMessage: Access to undefined constant Nextras\Dbal\Drivers\IDriver::TYPE_BOOL.
+			identifier: classConstant.notFound
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: Access to undefined constant Nextras\Dbal\Drivers\IDriver::TYPE_DATETIME.
+			identifier: classConstant.notFound
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: Access to undefined constant Nextras\Dbal\Drivers\IDriver::TYPE_IDENTIFIER.
+			identifier: classConstant.notFound
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: Access to undefined constant Nextras\Dbal\Drivers\IDriver::TYPE_STRING.
+			identifier: classConstant.notFound
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Call to an undefined method Nextras\Dbal\Drivers\IDriver::convertBoolToSql().'
+			identifier: method.notFound
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Call to an undefined method Nextras\Dbal\Drivers\IDriver::convertDateTimeToSql().'
+			identifier: method.notFound
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Call to an undefined method Nextras\Dbal\Drivers\IDriver::convertIdentifierToSql().'
+			identifier: method.notFound
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Call to an undefined method Nextras\Dbal\Drivers\IDriver::convertToSql().'
+			identifier: method.notFound
+			count: 4
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeBool() should return literal-string but returns mixed.'
+			identifier: return.type
+			count: 2
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeBool() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeDateTime() should return literal-string but returns mixed.'
+			identifier: return.type
+			count: 2
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeDateTime() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeIdentifier() should return literal-string but returns mixed.'
+			identifier: return.type
+			count: 2
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeIdentifier() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeInt() should return literal-string but returns decimal-int-string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeString() should return literal-string but returns mixed.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::escapeString() should return literal-string but returns string.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::exec() should return int<0, max> but returns int.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			rawMessage: 'Method Orisai\DbAudit\Dbal\NextrasAdapter::query() should return list<array<string, mixed>> but returns array<int, array<string, mixed>>.'
+			identifier: return.type
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
