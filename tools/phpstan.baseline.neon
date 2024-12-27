@@ -36,28 +36,43 @@ parameters:
 			path: ../src/Dbal/DibiAdapter.php
 
 		-
+			message: "#^Access to undefined constant Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:TYPE_BOOL\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Access to undefined constant Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:TYPE_DATETIME\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Access to undefined constant Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:TYPE_IDENTIFIER\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Access to undefined constant Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:TYPE_STRING\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:convertBoolToSql\\(\\)\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:convertDateTimeToSql\\(\\)\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
+			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:convertIdentifierToSql\\(\\)\\.$#"
+			count: 1
+			path: ../src/Dbal/NextrasAdapter.php
+
+		-
 			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Drivers\\\\IDriver\\:\\:convertToSql\\(\\)\\.$#"
 			count: 4
-			path: ../src/Dbal/NextrasAdapter.php
-
-		-
-			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Platforms\\\\IPlatform\\:\\:formatBool\\(\\)\\.$#"
-			count: 1
-			path: ../src/Dbal/NextrasAdapter.php
-
-		-
-			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Platforms\\\\IPlatform\\:\\:formatDateTime\\(\\)\\.$#"
-			count: 1
-			path: ../src/Dbal/NextrasAdapter.php
-
-		-
-			message: "#^Call to an undefined method Nextras\\\\Dbal\\\\Platforms\\\\IPlatform\\:\\:formatIdentifier\\(\\)\\.$#"
-			count: 1
-			path: ../src/Dbal/NextrasAdapter.php
-
-		-
-			message: "#^Call to function method_exists\\(\\) with Nextras\\\\Dbal\\\\Drivers\\\\IDriver and 'convertBoolToSql' will always evaluate to true\\.$#"
-			count: 1
 			path: ../src/Dbal/NextrasAdapter.php
 
 		-
