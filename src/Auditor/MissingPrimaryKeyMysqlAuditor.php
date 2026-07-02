@@ -2,12 +2,12 @@
 
 namespace Orisai\DbAudit\Auditor;
 
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 
 final class MissingPrimaryKeyMysqlAuditor extends MissingPrimaryKeyAuditor
 {
@@ -16,7 +16,7 @@ final class MissingPrimaryKeyMysqlAuditor extends MissingPrimaryKeyAuditor
 	{
 		return new SchemaRequest(
 			ColumnCharsetClass::any(),
-			new TableNameFilter(),
+			new TableExclude(),
 			false,
 			true,
 			true,

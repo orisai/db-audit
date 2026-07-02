@@ -2,8 +2,6 @@
 
 namespace Orisai\DbAudit\Schema;
 
-use Orisai\DbAudit\Collation\TableNameFilter;
-
 final class SchemaRequest
 {
 
@@ -11,7 +9,7 @@ final class SchemaRequest
 	private ColumnCharsetClass $columnCharsetClass;
 
 	/** @readonly */
-	private TableNameFilter $excludeTables;
+	private TableExclude $excludeTables;
 
 	/** @readonly */
 	private bool $needsTableMetadata;
@@ -24,14 +22,14 @@ final class SchemaRequest
 
 	public function __construct(
 		ColumnCharsetClass $columnCharsetClass,
-		?TableNameFilter $excludeTables = null,
+		?TableExclude $excludeTables = null,
 		bool $includeForeignKeyRelated = false,
 		bool $needsStatistics = false,
 		bool $needsTableMetadata = false
 	)
 	{
 		$this->columnCharsetClass = $columnCharsetClass;
-		$this->excludeTables = $excludeTables ?? new TableNameFilter();
+		$this->excludeTables = $excludeTables ?? new TableExclude();
 		$this->needsTableMetadata = $needsTableMetadata;
 		$this->includeForeignKeyRelated = $includeForeignKeyRelated;
 		$this->needsStatistics = $needsStatistics;
@@ -42,7 +40,7 @@ final class SchemaRequest
 		return $this->columnCharsetClass;
 	}
 
-	public function getExcludeTables(): TableNameFilter
+	public function getExcludeTables(): TableExclude
 	{
 		return $this->excludeTables;
 	}

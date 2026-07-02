@@ -3,12 +3,12 @@
 namespace Orisai\DbAudit\Auditor;
 
 use Orisai\DbAudit\Change\DropIndexChange;
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 use function array_keys;
 use function count;
 use function sort;
@@ -24,7 +24,7 @@ final class RedundantIndexMysqlAuditor extends RedundantIndexAuditor
 	{
 		return new SchemaRequest(
 			ColumnCharsetClass::any(),
-			new TableNameFilter(),
+			new TableExclude(),
 			false,
 			true,
 			true,

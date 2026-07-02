@@ -3,13 +3,13 @@
 namespace Orisai\DbAudit\Auditor;
 
 use Orisai\DbAudit\Change\ColumnTargetChange;
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\LegacyCharset;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 use function strcmp;
 use function strtolower;
 use function usort;
@@ -27,7 +27,7 @@ final class ForeignKeyColumnTypeMismatchMysqlAuditor extends ForeignKeyColumnTyp
 	{
 		return new SchemaRequest(
 			ColumnCharsetClass::any(),
-			new TableNameFilter(),
+			new TableExclude(),
 			false,
 			false,
 			true,

@@ -2,12 +2,12 @@
 
 namespace Orisai\DbAudit\Auditor;
 
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 use function preg_match;
 use function strcmp;
 use function stripos;
@@ -25,7 +25,7 @@ final class ForeignKeyColumnNameMismatchMysqlAuditor extends ForeignKeyColumnNam
 	{
 		return new SchemaRequest(
 			ColumnCharsetClass::any(),
-			new TableNameFilter(),
+			new TableExclude(),
 			false,
 			true,
 			true,

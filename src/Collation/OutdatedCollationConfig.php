@@ -2,6 +2,8 @@
 
 namespace Orisai\DbAudit\Collation;
 
+use Orisai\DbAudit\Schema\TableExclude;
+
 final class OutdatedCollationConfig
 {
 
@@ -17,7 +19,7 @@ final class OutdatedCollationConfig
 
 	private bool $forceUniqueIndexConversion = false;
 
-	private TableNameFilter $excludeTables;
+	private TableExclude $excludeTables;
 
 	public function __construct()
 	{
@@ -26,7 +28,7 @@ final class OutdatedCollationConfig
 		$this->legacyCharsetConversion = LegacyCharsetConversion::report();
 		$this->databaseDefault = DatabaseDefaultHandling::auto();
 		$this->executionAccount = null;
-		$this->excludeTables = new TableNameFilter();
+		$this->excludeTables = new TableExclude();
 	}
 
 	public function getTargetPolicy(): CollationTargetPolicy
@@ -101,12 +103,12 @@ final class OutdatedCollationConfig
 		return $this;
 	}
 
-	public function getExcludeTables(): TableNameFilter
+	public function getExcludeTables(): TableExclude
 	{
 		return $this->excludeTables;
 	}
 
-	public function setExcludeTables(TableNameFilter $excludeTables): self
+	public function setExcludeTables(TableExclude $excludeTables): self
 	{
 		$this->excludeTables = $excludeTables;
 

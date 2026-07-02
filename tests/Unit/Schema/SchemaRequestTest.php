@@ -2,9 +2,9 @@
 
 namespace Tests\Orisai\DbAudit\Unit\Schema;
 
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
 
 final class SchemaRequestTest extends TestCase
@@ -12,7 +12,7 @@ final class SchemaRequestTest extends TestCase
 
 	public function testGetters(): void
 	{
-		$exclude = (new TableNameFilter())->withName('skip');
+		$exclude = (new TableExclude())->withPattern('^skip$');
 		$request = new SchemaRequest(ColumnCharsetClass::nonUtf8mb4(), $exclude, true, true, true);
 
 		self::assertSame(ColumnCharsetClass::nonUtf8mb4(), $request->getColumnCharsetClass());

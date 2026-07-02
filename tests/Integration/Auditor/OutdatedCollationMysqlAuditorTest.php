@@ -11,7 +11,6 @@ use Orisai\DbAudit\Collation\CollationTargetPolicy;
 use Orisai\DbAudit\Collation\DatabaseDefaultHandling;
 use Orisai\DbAudit\Collation\LegacyCharsetConversion;
 use Orisai\DbAudit\Collation\OutdatedCollationConfig;
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Ignore\IgnoredError;
@@ -19,6 +18,7 @@ use Orisai\DbAudit\Ignore\IgnoreList;
 use Orisai\DbAudit\Report\Advisory;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -1382,7 +1382,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withName('country'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^country$'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		// The excluded parent carries an extra non-FK column that must stay utf8mb3 (only its FK column `code`
@@ -1479,7 +1479,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withGlob('_*'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		$dbal->exec(
@@ -1563,7 +1563,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withGlob('_*'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		$dbal->exec(
@@ -1633,7 +1633,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withName('region'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^region$'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		$dbal->exec(
@@ -1722,7 +1722,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withName('shared_ref'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^shared_ref$'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		// Excluded parent: two FK-referenced columns plus one non-FK column that must stay utf8mb3.
@@ -1828,7 +1828,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withName('country'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^country$'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		$dbal->exec(
@@ -2438,7 +2438,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withGlob('_*'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		$dbal->exec(
@@ -2485,7 +2485,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withGlob('_*'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		$dbal->exec(
@@ -2534,7 +2534,7 @@ SQL,
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
-		$config->setExcludeTables((new TableNameFilter())->withGlob('_*'));
+		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
 		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
 
 		// Excluded by the `_*` glob; its latin1 column would be reported unfixable if introspected.

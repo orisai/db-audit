@@ -5,12 +5,12 @@ namespace Tests\Orisai\DbAudit\Integration\Schema;
 use Generator;
 use Orisai\DbAudit\Auditor\Latin1EncodingMysqlAuditor;
 use Orisai\DbAudit\Auditor\OutdatedCollationMysqlAuditor;
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\SchemaProvider;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\CountingDbalAdapter;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
@@ -499,7 +499,7 @@ SQL,
 
 		$provider = new SchemaProvider($dbal);
 		$provider->primeColumns([
-			new SchemaRequest(ColumnCharsetClass::any(), (new TableNameFilter())->withName('parent')),
+			new SchemaRequest(ColumnCharsetClass::any(), (new TableExclude())->withPattern('^parent$')),
 		]);
 
 		self::assertSame([], $this->columnNamesOf($provider, 'parent'));
@@ -518,13 +518,13 @@ SQL,
 
 		$without = new SchemaProvider($dbal);
 		$without->primeColumns([
-			new SchemaRequest(ColumnCharsetClass::any(), (new TableNameFilter())->withName('parent'), false),
+			new SchemaRequest(ColumnCharsetClass::any(), (new TableExclude())->withPattern('^parent$'), false),
 		]);
 		self::assertSame([], $this->columnNamesOf($without, 'parent'));
 
 		$with = new SchemaProvider($dbal);
 		$with->primeColumns([
-			new SchemaRequest(ColumnCharsetClass::any(), (new TableNameFilter())->withName('parent'), true),
+			new SchemaRequest(ColumnCharsetClass::any(), (new TableExclude())->withPattern('^parent$'), true),
 		]);
 		self::assertContains('code', $this->columnNamesOf($with, 'parent'));
 	}
@@ -548,7 +548,7 @@ SQL,
 		// A needing request scoped to `parent` only fetches that table's index rows.
 		$scoped = new SchemaProvider($dbal);
 		$scoped->primeStatistics([
-			new SchemaRequest(ColumnCharsetClass::any(), (new TableNameFilter())->withName('child'), false, true),
+			new SchemaRequest(ColumnCharsetClass::any(), (new TableExclude())->withPattern('^child$'), false, true),
 		]);
 		$tables = [];
 		foreach ($scoped->getStatistics() as $stat) {
@@ -665,7 +665,13 @@ SQL,
 		// Exclude `parent` but ask for FK-related tables: table metadata is fetched only for the in-scope
 		// `child`, while the boundary FK child->parent is still pulled in (its referencing side is in scope).
 		$provider->primeTablesAndForeignKeys([
-			new SchemaRequest(ColumnCharsetClass::any(), (new TableNameFilter())->withName('parent'), true, true, true),
+			new SchemaRequest(
+				ColumnCharsetClass::any(),
+				(new TableExclude())->withPattern('^parent$'),
+				true,
+				true,
+				true,
+			),
 		]);
 
 		self::assertTrue($provider->isTablesPrimed());
@@ -710,7 +716,7 @@ SQL,
 		// whole-database column request) primes neither: tables and FKs stay unprimed so their lazy whole-DB
 		// fallback remains intact and returns the real data instead of silently empty results.
 		$provider->primeTablesAndForeignKeys([
-			new SchemaRequest(ColumnCharsetClass::singleByte(), new TableNameFilter(), false, false, false),
+			new SchemaRequest(ColumnCharsetClass::singleByte(), new TableExclude(), false, false, false),
 		]);
 
 		// No table-metadata or FK queries during prime.

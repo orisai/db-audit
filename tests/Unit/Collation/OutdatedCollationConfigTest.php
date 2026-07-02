@@ -6,7 +6,7 @@ use Orisai\DbAudit\Collation\CollationTargetPolicy;
 use Orisai\DbAudit\Collation\DatabaseDefaultHandling;
 use Orisai\DbAudit\Collation\LegacyCharsetConversion;
 use Orisai\DbAudit\Collation\OutdatedCollationConfig;
-use Orisai\DbAudit\Collation\TableNameFilter;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
 
 final class OutdatedCollationConfigTest extends TestCase
@@ -33,7 +33,7 @@ final class OutdatedCollationConfigTest extends TestCase
 			->setLegacyCharsetConversion(LegacyCharsetConversion::assumeDoubleEncoded())
 			->setForceUniqueIndexConversion(true)
 			->setExecutionAccount('app@%')
-			->setExcludeTables((new TableNameFilter())->withGlob('_*'));
+			->setExcludeTables((new TableExclude())->withPattern('^_'));
 
 		self::assertSame(CollationTargetPolicy::modernize(), $config->getTargetPolicy());
 		self::assertFalse($config->convertsUtf8mb3());

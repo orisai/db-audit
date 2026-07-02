@@ -2,12 +2,12 @@
 
 namespace Orisai\DbAudit\Auditor;
 
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 use function in_array;
 use function strcmp;
 use function strtolower;
@@ -24,7 +24,7 @@ final class Latin1EncodingMysqlAuditor extends Latin1EncodingAuditor
 	{
 		return new SchemaRequest(
 			ColumnCharsetClass::singleByte(),
-			new TableNameFilter(),
+			new TableExclude(),
 			false,
 			false,
 			false,

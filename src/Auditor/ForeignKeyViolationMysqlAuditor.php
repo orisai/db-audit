@@ -2,13 +2,13 @@
 
 namespace Orisai\DbAudit\Auditor;
 
-use Orisai\DbAudit\Collation\TableNameFilter;
 use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\ForeignKeyConstraint;
 use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\TableExclude;
 use function implode;
 use function strcmp;
 use function usort;
@@ -24,7 +24,7 @@ final class ForeignKeyViolationMysqlAuditor extends ForeignKeyViolationAuditor
 	{
 		return new SchemaRequest(
 			ColumnCharsetClass::any(),
-			new TableNameFilter(),
+			new TableExclude(),
 			false,
 			false,
 			true,
