@@ -25,8 +25,6 @@ final class MissingPrimaryKeyMysqlAuditor extends MissingPrimaryKeyAuditor
 
 	public function analyse(): AnalysisResult
 	{
-		$this->refreshOwnedSchema();
-
 		$db = $this->schema->getDatabaseDefault()['name'];
 		$statisticsByTable = $this->schema->getStatisticsByTable();
 

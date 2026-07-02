@@ -39,8 +39,6 @@ final class UniqueIndexCollationCollisionMysqlAuditor extends UniqueIndexCollati
 
 	public function analyse(): AnalysisResult
 	{
-		$this->primeOwnedSchema();
-
 		$server = (new ServerInfoReader($this->dbal))->read();
 		$available = [];
 		foreach ($this->schema->getCollations() as $collation) {

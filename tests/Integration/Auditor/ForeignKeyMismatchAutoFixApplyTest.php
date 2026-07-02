@@ -7,7 +7,9 @@ use Orisai\DbAudit\Auditor\ForeignKeyColumnTypeMismatchMysqlAuditor;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -38,7 +40,8 @@ final class ForeignKeyMismatchAutoFixApplyTest extends TestCase
 	public function testLengthFixAppliesOnBothEngines(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'fk_mismatch_autofix__length';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -71,12 +74,12 @@ SQL,
 		$dbal->exec(/** @lang MySQL */ "INSERT INTO `child_t` (`parent_id`) VALUES ('hello');");
 
 		// Always-run assertion: the auditor reports exactly one fixable size mismatch.
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertCount(1, $violations);
 		self::assertSame('foreign_key.size_mismatch', $violations[0]->getKey());
 		self::assertTrue($violations[0]->isFixable());
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		$sql = $report->getSql();
 
 		// ONE MODIFY widening the child to varchar(30).
@@ -105,7 +108,7 @@ SQL,
 		self::assertNotSame([], $fks);
 
 		// Idempotent: re-analyse reports no remaining size mismatch.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -118,7 +121,8 @@ SQL,
 	public function testCharsetFixAppliesOnMysql(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'fk_mismatch_autofix__charset';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -145,7 +149,7 @@ CREATE TABLE `child_t` (
 ) ENGINE=InnoDB;
 SQL,
 			);
-			self::assertSame([], $auditor->analyse()->getViolations());
+			self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 			return;
 		}
@@ -178,12 +182,12 @@ SQL,
 		$dbal->exec(/** @lang MySQL */ 'SET FOREIGN_KEY_CHECKS = 1;');
 
 		// Auditor reports one non-fixable charset mismatch (single-byte legacy child: blocked).
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertCount(1, $violations);
 		self::assertSame('foreign_key.charset_mismatch', $violations[0]->getKey());
 		self::assertFalse($violations[0]->isFixable());
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 
 		// No SQL emitted: single-byte legacy charset conversion is not auto-fixed.
 		self::assertSame('', $report->getSql());
@@ -205,7 +209,8 @@ SQL,
 	public function testCombinedCharsetAndLengthFixAppliesOnMysql(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'fk_mismatch_autofix__combined';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -232,7 +237,7 @@ CREATE TABLE `child_t` (
 ) ENGINE=InnoDB;
 SQL,
 			);
-			self::assertSame([], $auditor->analyse()->getViolations());
+			self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 			return;
 		}
@@ -266,7 +271,7 @@ SQL,
 		$dbal->exec(/** @lang MySQL */ 'SET FOREIGN_KEY_CHECKS = 1;');
 
 		// Auditor reports two violations for the same pair: charset_mismatch + size_mismatch, both report-only.
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertCount(2, $violations);
 		// Sorted by kind: charset (0) before size (1).
 		self::assertSame('foreign_key.charset_mismatch', $violations[0]->getKey());
@@ -274,7 +279,7 @@ SQL,
 		self::assertFalse($violations[0]->isFixable());
 		self::assertFalse($violations[1]->isFixable());
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 
 		// No SQL emitted: the blocked charset poisons the whole pair.
 		self::assertSame('', $report->getSql());
@@ -296,7 +301,8 @@ SQL,
 	public function testUnsafeCharsetStaysReportOnly(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'fk_mismatch_autofix__unsafe_charset';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -323,7 +329,7 @@ CREATE TABLE `child_t` (
 ) ENGINE=InnoDB;
 SQL,
 			);
-			self::assertSame([], $auditor->analyse()->getViolations());
+			self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 			return;
 		}
@@ -357,12 +363,12 @@ SQL,
 		$dbal->exec(/** @lang MySQL */ 'SET FOREIGN_KEY_CHECKS = 1;');
 
 		// Auditor reports the charset mismatch as non-fixable (unsafe direction: child MAXLEN > parent MAXLEN).
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertCount(1, $violations);
 		self::assertSame('foreign_key.charset_mismatch', $violations[0]->getKey());
 		self::assertFalse($violations[0]->isFixable());
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 
 		// No SQL emitted: the unsafe mismatch is not auto-fixed.
 		self::assertSame('', $report->getSql());
@@ -383,7 +389,8 @@ SQL,
 	public function testIncompatibleBaseTypeStaysReportOnly(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'fk_mismatch_autofix__incompatible_type';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -413,12 +420,12 @@ SQL,
 		$dbal->exec(/** @lang MySQL */ 'SET FOREIGN_KEY_CHECKS = 1;');
 
 		// Auditor reports size mismatch as non-fixable (incompatible base types: char vs varchar).
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertCount(1, $violations);
 		self::assertSame('foreign_key.size_mismatch', $violations[0]->getKey());
 		self::assertFalse($violations[0]->isFixable());
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 
 		// No MODIFY is emitted for the incompatible pair.
 		self::assertStringNotContainsString('MODIFY `parent_id`', $report->getSql());

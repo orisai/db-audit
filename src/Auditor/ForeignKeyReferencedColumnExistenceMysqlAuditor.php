@@ -31,8 +31,6 @@ final class ForeignKeyReferencedColumnExistenceMysqlAuditor extends ForeignKeyRe
 
 	public function analyse(): AnalysisResult
 	{
-		$this->refreshOwnedSchema();
-
 		$existingTables = [];
 		foreach ($this->schema->getTableNames() as $name) {
 			$existingTables[$name] = true;

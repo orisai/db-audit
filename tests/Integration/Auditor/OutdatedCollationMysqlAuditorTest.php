@@ -18,8 +18,10 @@ use Orisai\DbAudit\Ignore\IgnoreList;
 use Orisai\DbAudit\Report\Advisory;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 use function explode;
@@ -56,9 +58,10 @@ final class OutdatedCollationMysqlAuditorTest extends TestCase
 	 */
 	public function testUtf8mb3Columns(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_basic';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		// Beyond plain varchar/text, the table covers the column-definition reconstruction branches most
 		// likely to differ between engines: a literal string DEFAULT with a multibyte value (MySQL
@@ -85,16 +88,16 @@ SQL,
 			. "VALUES (1, 'Příliš žluťoučký', 'accented text', 'Žádná poznámka')",
 		);
 
-		$before = $auditor->analyse()->getViolations();
+		$before = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $before);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertNotSame('', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Idempotent: every converted column — including the enum and the generated column — must end at
 		// the utf8mb4 target, otherwise re-analyse would still report it.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$row = $dbal->query(
 			'SELECT `title`, `body`, `slug`, `note`, `kind`, `label` FROM `article` WHERE `id` = 1',
@@ -145,11 +148,12 @@ SQL,
 	 */
 	public function testUniqueIndexOrderPreservingConverts(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Under the default preserveOrder policy a unique-indexed column's target is order-preserving
 		// (utf8mb3_czech_ci -> utf8mb4_czech_ci), so it converts via a plain MODIFY — no index drop/re-add.
 		$db = 'outdated_collation_uq_nocollision';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -162,15 +166,15 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `account` (`id`, `login`) VALUES (1, 'alice'), (2, 'bob')");
 
-		$plan = $auditor->analyse()->getViolations();
+		$plan = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $plan);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `login`', $sql);
 		self::assertStringNotContainsString('DROP INDEX', $sql);
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$rows = $dbal->query('SELECT `id`, `login` FROM `account` ORDER BY `id`');
 		self::assertSame('alice', $rows[0]['login']);
@@ -185,6 +189,7 @@ SQL,
 	 */
 	public function testUniqueIndexNonOrderPreservingRefused(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A sensitivity-changing target (modernize *_ci) under a unique index could equate keys the source
 		// kept distinct, so the conversion is REFUSED deterministically — no data probe. (Whether the data
 		// actually collides is the Stage 5 data auditor's question, not this schema-only structure path.)
@@ -193,7 +198,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setTargetPolicy(CollationTargetPolicy::modernize());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -206,12 +211,12 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `term` (`id`, `code`) VALUES (1, 'alpha'), (2, 'beta')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The refused column is left out of the generated migration entirely.
 		self::assertStringNotContainsString('MODIFY `code`', $sql);
 		self::assertStringNotContainsString('DROP INDEX', $sql);
 
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		$refusal = $this->findViolationByKey($violations, 'outdated_collation.unique_index');
 		self::assertNotNull($refusal);
 		self::assertStringContainsString('[code]', $refusal->getMessage());
@@ -226,6 +231,7 @@ SQL,
 	 */
 	public function testForceUniqueIndexConversion(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Without setForceUniqueIndexConversion a non-order-preserving (modernize) target always
 		// refuses a unique-indexed column (deterministic, schema-only). With the flag set to true
 		// the column converts; the migration applies cleanly on data that does not collide under
@@ -237,7 +243,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setTargetPolicy(CollationTargetPolicy::modernize());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -251,7 +257,7 @@ SQL,
 		// Values that stay distinct under every utf8mb4 ci collation — no collision on either engine.
 		$dbal->exec("INSERT INTO `product` (`id`, `sku`) VALUES (1, 'alpha'), (2, 'beta')");
 
-		$refusedReport = (new Runner($dbal, [$auditor]))->generate();
+		$refusedReport = (new Runner($schema, [$auditor]))->generate();
 		$refusal = $this->findViolationByKey($refusedReport->getUnfixable(), 'outdated_collation.unique_index');
 		self::assertNotNull($refusal);
 		self::assertStringContainsString('[sku]', $refusal->getMessage());
@@ -264,7 +270,7 @@ SQL,
 		$config2 = new OutdatedCollationConfig();
 		$config2->setTargetPolicy(CollationTargetPolicy::modernize());
 		$config2->setForceUniqueIndexConversion(true);
-		$auditor2 = new OutdatedCollationMysqlAuditor($dbal, $config2);
+		$auditor2 = new OutdatedCollationMysqlAuditor($schema, $config2);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -277,14 +283,14 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `product` (`id`, `sku`) VALUES (1, 'alpha'), (2, 'beta')");
 
-		$forcedReport = (new Runner($dbal, [$auditor2]))->generate();
+		$forcedReport = (new Runner($schema, [$auditor2]))->generate();
 		$sql = $forcedReport->getSql();
 		self::assertStringContainsString('MODIFY `sku`', $sql);
 		self::assertNull($this->findViolationByKey($forcedReport->getUnfixable(), 'outdated_collation.unique_index'));
 		$this->runScript($dbal, $sql);
 
 		// Idempotent: re-analyse clean after forced conversion.
-		self::assertSame([], $auditor2->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor2)->getViolations());
 
 		$rows = $dbal->query('SELECT `id`, `sku` FROM `product` ORDER BY `id`');
 		self::assertSame('alpha', $rows[0]['sku']);
@@ -299,12 +305,13 @@ SQL,
 	 */
 	public function testCompositeUniqueIndexConverts(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A column in a composite unique index converts under the default preserveOrder policy: its target
 		// is order-preserving, so the conversion can never create a duplicate key regardless of the data
 		// (here the same `code` legitimately repeats under different `group_id`). Plain MODIFY, no index churn.
 		$db = 'outdated_collation_composite_uq';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -321,21 +328,21 @@ SQL,
 			. "VALUES (1, 'alpha'), (2, 'alpha'), (1, 'beta'), (2, 'beta')",
 		);
 
-		$plan = $auditor->analyse()->getViolations();
+		$plan = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $plan);
 		// `code` is reported as a plain outdated column, NOT refused under the unique index.
 		$violation = $this->findColumnViolation($plan, 'code');
 		self::assertNotNull($violation);
 		self::assertNull($this->findViolationByKey($plan, 'outdated_collation.unique_index'));
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The composite-unique column IS converted (order-preserving target -> never a duplicate key).
 		self::assertStringContainsString('MODIFY `code`', $sql);
 		self::assertStringNotContainsString('DROP INDEX', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean: re-analyse reports nothing.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$rows = $dbal->query('SELECT `group_id`, `code` FROM `feature` ORDER BY `group_id`, `code`');
 		self::assertSame('alpha', $rows[0]['code']);
@@ -352,6 +359,7 @@ SQL,
 	 */
 	public function testPreserveOrderUniqueIndexConverts(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Under the default preserveOrder policy a utf8mb3 column converts to its utf8mb4 namesake
 		// (here utf8mb3_bin -> utf8mb4_bin): the stored bytes and the collation algorithm are unchanged, so
 		// two previously-distinct values can never collide and the column converts unconditionally. The data
@@ -359,7 +367,7 @@ SQL,
 		// proving the rule keys on order-preservation, never on the values themselves.
 		$db = 'outdated_collation_preserveorder_uq';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -375,21 +383,21 @@ SQL,
 		// a case-insensitive target, but the namesake utf8mb4_bin keeps them distinct.
 		$dbal->exec("INSERT INTO `term` (`id`, `code`) VALUES (1, 'A'), (2, 'a')");
 
-		$plan = $auditor->analyse()->getViolations();
+		$plan = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $plan);
 		// The column is reported as a plain outdated column, NOT refused under the unique index.
 		$violation = $this->findColumnViolation($plan, 'code');
 		self::assertNotNull($violation);
 		self::assertNull($this->findViolationByKey($plan, 'outdated_collation.unique_index'));
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The unique-index column IS converted (order-preserving target -> no collision possible).
 		self::assertStringContainsString('MODIFY `code`', $sql);
 		self::assertStringNotContainsString('DROP INDEX', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean: re-analyse reports nothing.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$rows = $dbal->query('SELECT `id`, `code` FROM `term` ORDER BY `id`');
 		self::assertSame('A', $rows[0]['code']);
@@ -404,12 +412,13 @@ SQL,
 	 */
 	public function testNullableUniqueIndexConverts(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A nullable unique-indexed column converts under the default preserveOrder policy: its target is
 		// order-preserving, so the conversion is data-independent (the multiple NULL rows a UNIQUE index
 		// permits are irrelevant — there is no data probe to be confused by them).
 		$db = 'outdated_collation_uq_nullable';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -426,7 +435,7 @@ SQL,
 			. "VALUES (1, NULL), (2, NULL), (3, 'Žluťoučký'), (4, 'Příliš')",
 		);
 
-		$plan = $auditor->analyse()->getViolations();
+		$plan = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $plan);
 
 		// The column must NOT be refused under the unique index (it is a plain outdated-column report).
@@ -434,14 +443,14 @@ SQL,
 		self::assertNotNull($violation);
 		self::assertNull($this->findViolationByKey($plan, 'outdated_collation.unique_index'));
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The nullable unique column IS converted (order-preserving target -> never a duplicate key).
 		self::assertStringContainsString('MODIFY `nick`', $sql);
 		self::assertStringNotContainsString('DROP INDEX', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean: re-analyse reports nothing.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$rows = $dbal->query('SELECT `id`, `nick` FROM `member` ORDER BY `id`');
 		self::assertNull($rows[0]['nick']);
@@ -458,6 +467,7 @@ SQL,
 	 */
 	public function testPrimaryKeyNonOrderPreservingRefused(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A PRIMARY KEY is a unique index too: a PK-backed string column converting to a sensitivity-changing
 		// target (modernize *_ci) is REFUSED deterministically — never emitted as an unchecked MODIFY, and
 		// never a DROP/ADD of the PRIMARY index.
@@ -466,7 +476,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setTargetPolicy(CollationTargetPolicy::modernize());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -478,13 +488,13 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `glossary` (`code`) VALUES ('cz'), ('sk')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The refused PK column is left out of the generated migration entirely; no MODIFY and never a
 		// DROP/ADD of the PRIMARY index.
 		self::assertStringNotContainsString('MODIFY `code`', $sql);
 		self::assertStringNotContainsString('PRIMARY', $sql);
 
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		$refusal = $this->findViolationByKey($violations, 'outdated_collation.unique_index');
 		self::assertNotNull($refusal);
 		self::assertStringContainsString('[code]', $refusal->getMessage());
@@ -499,11 +509,12 @@ SQL,
 	 */
 	public function testPrimaryKeyOrderPreservingConverts(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A PK-backed string column converts cleanly under the default preserveOrder policy (order-preserving
 		// target) — a plain MODIFY, never a DROP/ADD of the PRIMARY index.
 		$db = 'outdated_collation_pk_nocollision';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -515,21 +526,21 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz'), ('sk')");
 
-		$plan = $auditor->analyse()->getViolations();
+		$plan = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $plan);
 		// Reported as a plain outdated column, not refused under the PRIMARY KEY.
 		$violation = $this->findColumnViolation($plan, 'code');
 		self::assertNotNull($violation);
 		self::assertNull($this->findViolationByKey($plan, 'outdated_collation.unique_index'));
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `code`', $sql);
 		self::assertStringNotContainsString('PRIMARY', $sql);
 		self::assertStringNotContainsString('DROP INDEX', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$rows = $dbal->query('SELECT `code` FROM `country` ORDER BY `code`');
 		self::assertSame('cz', $rows[0]['code']);
@@ -544,11 +555,12 @@ SQL,
 	 */
 	public function testUniqueIndexConvertsWithoutRecreatingIndex(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Both members of the composite unique index are order-preserving under the default policy, so each
 		// converts via a plain MODIFY and the index is never dropped/re-added — it rides through untouched.
 		$db = 'outdated_collation_uq_recreate';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -564,14 +576,14 @@ SQL,
 			"INSERT INTO `tag` (`id`, `name`, `scope`) VALUES (1, 'red', 'global'), (2, 'blue', 'local')",
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `name`', $sql);
 		self::assertStringContainsString('MODIFY `scope`', $sql);
 		self::assertStringNotContainsString('DROP INDEX', $sql);
 		self::assertStringNotContainsString('ADD UNIQUE INDEX', $sql);
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The unique index rides through the conversion unchanged.
 		$indexRows = $dbal->query(
@@ -595,9 +607,10 @@ SQL,
 	 */
 	public function testCompactRowFormatUpgraded(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_compact';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		// COMPACT/REDUNDANT cap an index prefix at 767 bytes: varchar(255) utf8mb3 = 765 bytes fits before,
 		// but the utf8mb4 conversion would need 1020 bytes — only a DYNAMIC row format makes that legal.
@@ -612,11 +625,11 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `entry` (`id`, `name`) VALUES (1, 'hello'), (2, 'world')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('ROW_FORMAT = DYNAMIC', $sql);
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$rowFormat = $dbal->query(
 			'SELECT ROW_FORMAT FROM INFORMATION_SCHEMA.TABLES '
@@ -642,9 +655,10 @@ SQL,
 		DatabaseEngine $engine
 	): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_compact_percol';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -666,7 +680,7 @@ SQL,
 		)[0];
 		self::assertSame('Compact', $created['ROW_FORMAT']);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// Each converted column is 400 bytes < 767, so no DYNAMIC bump is needed — the summed 800 is irrelevant.
 		self::assertStringNotContainsString('ROW_FORMAT = DYNAMIC', $sql);
 		self::assertStringContainsString('MODIFY `a`', $sql);
@@ -674,7 +688,7 @@ SQL,
 
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The table stayed COMPACT — the conversion applied without a row-format change.
 		$rowFormat = $dbal->query(
@@ -709,9 +723,10 @@ SQL,
 		DatabaseEngine $engine
 	): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_compact_sibling';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -733,7 +748,7 @@ SQL,
 		)[0];
 		self::assertSame('Compact', $created['ROW_FORMAT']);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// `a` converts to 1020 bytes > 767, exceeding the COMPACT per-column cap, so DYNAMIC is required.
 		self::assertStringContainsString('ROW_FORMAT = DYNAMIC', $sql);
 		self::assertStringContainsString('MODIFY `a`', $sql);
@@ -741,7 +756,7 @@ SQL,
 		// The script applies cleanly — proving the converted index fits under the DYNAMIC budget.
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$rowFormat = $dbal->query(
 			'SELECT ROW_FORMAT FROM INFORMATION_SCHEMA.TABLES '
@@ -760,10 +775,11 @@ SQL,
 	 */
 	public function testIndexTooLongEvenDynamic(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_toolong';
 		$this->setUpDatabase($dbal, $db);
 
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		// varchar(1000) utf8mb3 = 3000 bytes, creatable under DYNAMIC (3072 limit); the utf8mb4 conversion
 		// would require 4000 bytes — beyond the hard 3072-byte key limit no row format can satisfy.
@@ -777,7 +793,7 @@ CREATE TABLE `lookup` (
 SQL,
 		);
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		$sql = $report->getSql();
 		// The over-long column is excluded so no failing statement is produced.
 		self::assertStringNotContainsString('MODIFY `big`', $sql);
@@ -796,9 +812,10 @@ SQL,
 	 */
 	public function testDatabaseDefaultEmittedWhenGranted(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_dbdefault_granted';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -809,11 +826,11 @@ CREATE TABLE `note` (
 SQL,
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('ALTER DATABASE', $sql);
 
 		$this->runScript($dbal, $sql);
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$default = $dbal->query(
 			'SELECT DEFAULT_CHARACTER_SET_NAME AS charset FROM INFORMATION_SCHEMA.SCHEMATA '
@@ -827,12 +844,13 @@ SQL,
 	 */
 	public function testDatabaseDefaultSkippedByConfig(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_dbdefault_skip';
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
 		$config->setDatabaseDefault(DatabaseDefaultHandling::skip());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -843,10 +861,13 @@ CREATE TABLE `note` (
 SQL,
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringNotContainsString('ALTER DATABASE', $sql);
 
-		$advisory = $this->findAdvisoryContaining($auditor->analyse()->getAdvisories(), 'skipped by configuration');
+		$advisory = $this->findAdvisoryContaining(
+			AuditorRunner::analyse($schema, $auditor)->getAdvisories(),
+			'skipped by configuration',
+		);
 		self::assertNotNull($advisory);
 	}
 
@@ -855,6 +876,7 @@ SQL,
 	 */
 	public function testDatabaseDefaultSkippedWhenNoGrant(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_dbdefault_nogrant';
 		$this->setUpDatabase($dbal, $db);
 
@@ -871,7 +893,7 @@ SQL,
 		try {
 			$config = new OutdatedCollationConfig();
 			$config->setExecutionAccount('dbaudit_limited@%');
-			$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+			$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 			$dbal->exec(
 				<<<'SQL'
@@ -882,10 +904,13 @@ CREATE TABLE `note` (
 SQL,
 			);
 
-			$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+			$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 			self::assertStringNotContainsString('ALTER DATABASE', $sql);
 
-			$advisory = $this->findAdvisoryContaining($auditor->analyse()->getAdvisories(), 'missing ALTER privilege');
+			$advisory = $this->findAdvisoryContaining(
+				AuditorRunner::analyse($schema, $auditor)->getAdvisories(),
+				'missing ALTER privilege',
+			);
 			self::assertNotNull($advisory);
 		} finally {
 			$dbal->exec("DROP USER IF EXISTS 'dbaudit_limited'@'%'");
@@ -897,9 +922,10 @@ SQL,
 	 */
 	public function testLockDefaultEmitsNoClause(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_lock_default';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -910,7 +936,7 @@ CREATE TABLE `note` (
 SQL,
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `text`', $sql);
 		self::assertStringNotContainsString('LOCK =', $sql);
 	}
@@ -920,10 +946,11 @@ SQL,
 	 */
 	public function testLockSharedEmitsClause(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_lock_shared';
 		$this->setUpDatabase($dbal, $db);
 
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -935,7 +962,7 @@ SQL,
 		);
 
 		$sql = (new Runner(
-			$dbal,
+			$schema,
 			[$auditor],
 			null,
 			null,
@@ -953,7 +980,7 @@ SQL,
 		}
 
 		$this->runScript($dbal, $sql);
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$columns = $this->fetchColumnsOf($dbal, 'note');
 		self::assertSame('utf8mb4', $columns['text']['CHARACTER_SET_NAME']);
@@ -964,10 +991,11 @@ SQL,
 	 */
 	public function testLockNoneEmitsNoLockClause(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_lock_none';
 		$this->setUpDatabase($dbal, $db);
 
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -978,7 +1006,7 @@ CREATE TABLE `note` (
 SQL,
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `text`', $sql);
 		self::assertStringNotContainsString('LOCK = NONE', $sql);
 
@@ -993,9 +1021,10 @@ SQL,
 	 */
 	public function testForeignKeyPairConverted(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_fk_pair';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1018,12 +1047,12 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `code`', $sql);
 		self::assertStringContainsString('MODIFY `country_code`', $sql);
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// Both endpoints converted to utf8mb4.
 		self::assertSame('utf8mb4', $this->fetchColumnsOf($dbal, 'country')['code']['CHARACTER_SET_NAME']);
@@ -1049,13 +1078,14 @@ SQL,
 	 */
 	public function testForeignKeyUniqueEndpointConvertsAndRebuilds(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A string FK whose referenced column sits under the PRIMARY KEY (a unique index) while the
 		// referencing column sits under the non-unique auto FK index. Under the default preserveOrder policy
 		// the PK endpoint's target is order-preserving, so both endpoints convert and the FK is dropped and
 		// re-added around the conversion (the rebuilt constraint matches: utf8mb4 child and parent).
 		$db = 'outdated_collation_fk_unique_converts';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1079,7 +1109,7 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		$sql = $report->getSql();
 		// Both endpoints convert and the FK is rebuilt around the conversion.
 		self::assertStringContainsString('MODIFY `code`', $sql);
@@ -1112,6 +1142,7 @@ SQL,
 		DatabaseEngine $engine
 	): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The referenced PRIMARY KEY column converts to a sensitivity-changing modernize target, so it is
 		// REFUSED deterministically (a unique-index member under a non-order-preserving conversion). Its FK
 		// partner on the child must therefore also be left unconverted and the FK must NOT be rebuilt — the
@@ -1121,7 +1152,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setTargetPolicy(CollationTargetPolicy::modernize());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1145,7 +1176,7 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz'), ('sk')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz'), (2, 'sk')");
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		$sql = $report->getSql();
 		// Neither endpoint converts and the FK is left intact.
 		self::assertStringNotContainsString('MODIFY `code`', $sql);
@@ -1183,12 +1214,13 @@ SQL,
 	 */
 	public function testForeignKeyActionsPreserved(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The FK is dropped and re-added around the column conversion; its referential actions must survive.
 		// ON DELETE CASCADE / ON UPDATE SET NULL are sourced from REFERENTIAL_CONSTRAINTS and re-emitted, so
 		// they must STILL hold after the migration (the child FK column is nullable to make SET NULL legal).
 		$db = 'outdated_collation_fk_actions';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1212,14 +1244,14 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz'), ('sk')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz'), (2, 'sk')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('DROP FOREIGN KEY `fk_city_country`', $sql);
 		self::assertStringContainsString('ON DELETE CASCADE', $sql);
 		self::assertStringContainsString('ON UPDATE SET NULL', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Idempotent.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// Both endpoints converted to utf8mb4.
 		self::assertSame('utf8mb4', $this->fetchColumnsOf($dbal, 'country')['code']['CHARACTER_SET_NAME']);
@@ -1247,12 +1279,13 @@ SQL,
 	 */
 	public function testCompositeForeignKeyConverted(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A two-column FK is dropped and re-added around the conversion; its columns must come back in the
 		// correct order (sourced from KEY_COLUMN_USAGE ordered by ORDINAL_POSITION). All four endpoint
 		// columns converge to utf8mb4 so the re-added composite FK stays type-compatible.
 		$db = 'outdated_collation_fk_composite';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1277,14 +1310,14 @@ SQL,
 		$dbal->exec("INSERT INTO `region` (`col_a`, `col_b`) VALUES ('cz', 'pr')");
 		$dbal->exec("INSERT INTO `district` (`id`, `a`, `b`) VALUES (1, 'cz', 'pr')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('DROP FOREIGN KEY `fk_district_region`', $sql);
 		self::assertStringContainsString('FOREIGN KEY (`a`, `b`)', $sql);
 		self::assertStringContainsString('REFERENCES `region` (`col_a`, `col_b`)', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Idempotent.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// All four endpoint columns converted to utf8mb4.
 		$regionColumns = $this->fetchColumnsOf($dbal, 'region');
@@ -1321,11 +1354,12 @@ SQL,
 	 */
 	public function testForeignKeyBothIncludedConverted(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Both tables in scope: the today behaviour. Both FK columns convert, the FK is dropped+recreated,
 		// and re-analysis is clean (round-trip).
 		$db = 'outdated_collation_fk_both_included';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1348,14 +1382,14 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `code`', $sql);
 		self::assertStringContainsString('MODIFY `country_code`', $sql);
 		self::assertStringContainsString('DROP FOREIGN KEY `fk_city_country`', $sql);
 		self::assertStringContainsString('ADD CONSTRAINT `fk_city_country`', $sql);
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		self::assertSame('utf8mb4', $this->fetchColumnsOf($dbal, 'country')['code']['CHARACTER_SET_NAME']);
 		self::assertSame('utf8mb4', $this->fetchColumnsOf($dbal, 'city')['country_code']['CHARACTER_SET_NAME']);
@@ -1375,6 +1409,7 @@ SQL,
 		DatabaseEngine $engine
 	): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Child included, parent excluded: the FK relationship stays in scope. BOTH FK columns convert —
 		// including the FK column on the EXCLUDED parent — so the constraint stays valid; the parent's OTHER
 		// columns and its table default are left untouched. The FK is dropped+recreated.
@@ -1383,7 +1418,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^country$'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		// The excluded parent carries an extra non-FK column that must stay utf8mb3 (only its FK column `code`
 		// is pulled into scope).
@@ -1409,7 +1444,7 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`, `name`) VALUES ('cz', 'Czechia')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// BOTH FK columns convert — the child's and the excluded parent's.
 		self::assertStringContainsString('MODIFY `country_code`', $sql);
 		self::assertStringContainsString('MODIFY `code`', $sql);
@@ -1426,7 +1461,7 @@ SQL,
 		// No "unfixable boundary" report any more.
 		self::assertNull(
 			$this->findViolationContaining(
-				$auditor->analyse()->getViolations(),
+				AuditorRunner::analyse($schema, $auditor)->getViolations(),
 				'crosses the table-exclusion boundary',
 			),
 		);
@@ -1458,7 +1493,7 @@ SQL,
 		// Re-analyse: no boundary violation (the relationship was handled).
 		self::assertNull(
 			$this->findViolationContaining(
-				$auditor->analyse()->getViolations(),
+				AuditorRunner::analyse($schema, $auditor)->getViolations(),
 				'crosses the table-exclusion boundary',
 			),
 		);
@@ -1472,6 +1507,7 @@ SQL,
 		DatabaseEngine $engine
 	): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Symmetric mirror: parent included, child excluded (the boundary FK is reachable only through the
 		// referenced-table index). BOTH FK columns convert — including the FK column on the EXCLUDED child —
 		// while the excluded child's other column and table default stay untouched.
@@ -1480,7 +1516,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1505,7 +1541,7 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `_city` (`id`, `country_code`, `label`) VALUES (1, 'cz', 'Prague')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// BOTH FK columns convert — the parent's `code` and the excluded child's `country_code`.
 		self::assertStringContainsString('MODIFY `code`', $sql);
 		self::assertStringContainsString('MODIFY `country_code`', $sql);
@@ -1516,7 +1552,7 @@ SQL,
 		self::assertStringNotContainsString('MODIFY `label`', $sql);
 		self::assertNull(
 			$this->findViolationContaining(
-				$auditor->analyse()->getViolations(),
+				AuditorRunner::analyse($schema, $auditor)->getViolations(),
 				'crosses the table-exclusion boundary',
 			),
 		);
@@ -1546,7 +1582,7 @@ SQL,
 
 		self::assertNull(
 			$this->findViolationContaining(
-				$auditor->analyse()->getViolations(),
+				AuditorRunner::analyse($schema, $auditor)->getViolations(),
 				'crosses the table-exclusion boundary',
 			),
 		);
@@ -1557,6 +1593,7 @@ SQL,
 	 */
 	public function testForeignKeyBothExcludedIgnored(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Both tables excluded: the FK relationship is ignored entirely — neither table's columns convert,
 		// the FK is untouched, and nothing is reported.
 		$db = 'outdated_collation_fk_both_excluded';
@@ -1564,7 +1601,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1594,8 +1631,8 @@ CREATE TABLE `article` (
 SQL,
 		);
 
-		$violations = $auditor->analyse()->getViolations();
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 
 		// The in-scope table converts.
 		self::assertStringContainsString('MODIFY `title`', $sql);
@@ -1626,6 +1663,7 @@ SQL,
 	 */
 	public function testCompositeForeignKeyBoundaryConvertsBoth(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A composite (two-column) FK across the boundary: both columns on both sides convert and the FK is
 		// recreated with the correct column order. The parent is excluded; only its two FK columns are
 		// pulled into scope.
@@ -1634,7 +1672,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^region$'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1660,7 +1698,7 @@ SQL,
 		$dbal->exec("INSERT INTO `region` (`col_a`, `col_b`, `note`) VALUES ('cz', 'pr', 'x')");
 		$dbal->exec("INSERT INTO `district` (`id`, `a`, `b`) VALUES (1, 'cz', 'pr')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// All four FK endpoint columns convert (two on the child, two on the excluded parent).
 		self::assertStringContainsString('MODIFY `a`', $sql);
 		self::assertStringContainsString('MODIFY `b`', $sql);
@@ -1713,6 +1751,7 @@ SQL,
 		DatabaseEngine $engine
 	): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// An excluded table `shared_ref` is referenced by TWO different included child tables through TWO
 		// separate FKs on TWO separate columns of `shared_ref`. The accumulation set in applyForeignKeyBoundary
 		// collects both FK columns before building a single TableMigration, so the excluded table's ALTER
@@ -1723,7 +1762,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^shared_ref$'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		// Excluded parent: two FK-referenced columns plus one non-FK column that must stay utf8mb3.
 		$dbal->exec(
@@ -1763,7 +1802,7 @@ SQL,
 		$dbal->exec("INSERT INTO `child_one` (`id`, `ref_a`) VALUES (1, 'aa')");
 		$dbal->exec("INSERT INTO `child_two` (`id`, `ref_b`) VALUES (1, 'bb')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 
 		// Both FK columns on the excluded `shared_ref` must be converted.
 		self::assertStringContainsString('MODIFY `code_a`', $sql);
@@ -1808,7 +1847,7 @@ SQL,
 		self::assertSame('dd', $childTwoRows[1]['ref_b']);
 
 		// Re-analyse after migration must be clean.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -1819,6 +1858,7 @@ SQL,
 		DatabaseEngine $engine
 	): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A boundary FK whose two columns are single-byte legacy (latin1) under the default report() mode:
 		// neither side converts (report mode leaves them unchanged), so there is no charset mismatch and the
 		// FK is NOT dropped/recreated. The included child surfaces a latin1 report violation for its FK
@@ -1829,7 +1869,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^country$'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1850,13 +1890,13 @@ CREATE TABLE `city` (
 SQL,
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// Neither side converts (report mode), so neither FK column is modified and the FK is NOT rebuilt.
 		self::assertStringNotContainsString('MODIFY `country_code`', $sql);
 		self::assertStringNotContainsString('MODIFY `code`', $sql);
 		self::assertStringNotContainsString('DROP FOREIGN KEY', $sql);
 
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		// The included child's FK column surfaces a latin1 report violation.
 		$childReport = $this->findColumnViolation($violations, 'country_code');
 		self::assertNotNull($childReport);
@@ -1881,12 +1921,13 @@ SQL,
 	 */
 	public function testForeignKeyChildWidenedToParentLength(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The referencing (child) FK column is shorter than the referenced (parent) column (legal: a child may
 		// be narrower). The conversion is parent-driven: the child must be WIDENED to the parent's length so
 		// both ends share charset, collation AND a length where the parent is never wider than the child.
 		$db = 'outdated_collation_fk_widen_child';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1910,14 +1951,14 @@ SQL,
 		$dbal->exec("INSERT INTO `parent` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `child` (`id`, `parent_code`) VALUES (1, 'cz')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The child FK column's MODIFY widens it to the parent's length; the parent keeps its own length.
 		self::assertStringContainsString('MODIFY `parent_code` varchar(100)', $sql);
 		self::assertStringContainsString('MODIFY `code` varchar(100)', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The child was widened to varchar(100) to match the parent; both ends are utf8mb4.
 		self::assertSame('varchar(100)', $this->fetchColumnTypeOf($dbal, 'child', 'parent_code'));
@@ -1943,12 +1984,13 @@ SQL,
 	 */
 	public function testForeignKeyChildLargerThanParentKeptLength(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The referencing (child) FK column is already WIDER than the referenced (parent) column. Length
 		// alignment only ever widens — never shrinks — so the child keeps its larger length; the parent stays
 		// at its own length (the parent is not wider than the child, so the invariant already holds).
 		$db = 'outdated_collation_fk_keep_child';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -1972,14 +2014,14 @@ SQL,
 		$dbal->exec("INSERT INTO `parent` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `child` (`id`, `parent_code`) VALUES (1, 'cz')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The child is NOT shrunk; the parent keeps its own length.
 		self::assertStringContainsString('MODIFY `parent_code` varchar(100)', $sql);
 		self::assertStringContainsString('MODIFY `code` varchar(50)', $sql);
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The child stayed varchar(100); the parent stayed varchar(50); both ends utf8mb4.
 		self::assertSame('varchar(100)', $this->fetchColumnTypeOf($dbal, 'child', 'parent_code'));
@@ -1999,6 +2041,7 @@ SQL,
 	 */
 	public function testForeignKeyChainWidensTransitively(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A 3-table FK chain where the WIDEST column is at the far (grandparent) end:
 		//   a.b_code varchar(50) -> b.code varchar(100) -> c.code varchar(150)
 		// The fixpoint must run multiple rounds: b.code is widened to 150 in round 1 (driven by c),
@@ -2006,7 +2049,7 @@ SQL,
 		// approach would stop a.b_code at 100 (b's original length), missing the transitive propagation.
 		$db = 'outdated_collation_fk_chain';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2038,7 +2081,7 @@ SQL,
 		$dbal->exec("INSERT INTO `b` (`code`) VALUES ('x')");
 		$dbal->exec("INSERT INTO `a` (`b_code`) VALUES ('x')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The key assertion: a.b_code widened to 150 transitively (c->b->a across fixpoint rounds).
 		// A single-pass implementation would only reach 100 (b's original length before widening).
 		self::assertStringContainsString('MODIFY `b_code` varchar(150)', $sql);
@@ -2047,7 +2090,7 @@ SQL,
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// All three columns end at varchar(150), utf8mb4.
 		self::assertSame('varchar(150)', $this->fetchColumnTypeOf($dbal, 'a', 'b_code'));
@@ -2083,6 +2126,7 @@ SQL,
 	 */
 	public function testForeignKeyCycleWidensToMaxAndApplies(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A cyclic FK chain where every column is both a child and a parent:
 		//   a.code varchar(50) -> b.code varchar(100) -> c.code varchar(150) -> a.code varchar(50)
 		// The fixpoint must traverse the full cycle over multiple rounds: c widens b to 150 (round 1),
@@ -2091,7 +2135,7 @@ SQL,
 		// also guards fixpoint termination: a looping generate() would time out before reaching assertions.
 		$db = 'outdated_collation_fk_cycle';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		// Create all three tables first; FK references require the target table to already exist.
 		$dbal->exec(
@@ -2123,7 +2167,7 @@ SQL,
 		$dbal->exec('ALTER TABLE `b` ADD CONSTRAINT `fk_b` FOREIGN KEY (`code`) REFERENCES `c` (`code`)');
 		$dbal->exec('ALTER TABLE `c` ADD CONSTRAINT `fk_c` FOREIGN KEY (`code`) REFERENCES `a` (`code`)');
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The key assertion: all three code columns are widened to the cycle's maximum (150).
 		// A single-pass implementation would leave a.code at 100 (b's original length) and miss the
 		// second propagation round that drives it to 150.
@@ -2134,7 +2178,7 @@ SQL,
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean: re-analyse reports no violations (idempotent).
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// All three code columns are now varchar(150) utf8mb4.
 		self::assertSame('varchar(150)', $this->fetchColumnTypeOf($dbal, 'a', 'code'));
@@ -2157,6 +2201,7 @@ SQL,
 	 */
 	public function testForeignKeyMultipleChildrenWidenedToParent(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// One parent is referenced by TWO children with different column widths:
 		//   c1.p_code varchar(40) -> p.code varchar(120) <- c2.p_code varchar(200)
 		// c1 must be widened to 120 (parent is larger); c2 must keep 200 (child is larger, no shrink).
@@ -2164,7 +2209,7 @@ SQL,
 		// per child and does not mix up or skip either child.
 		$db = 'outdated_collation_fk_multichild';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2196,7 +2241,7 @@ SQL,
 		$dbal->exec("INSERT INTO `c1` (`p_code`) VALUES ('x')");
 		$dbal->exec("INSERT INTO `c2` (`p_code`) VALUES ('x')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// c1 widened to parent's varchar(120); c2 kept at its own varchar(200); p stays at varchar(120).
 		self::assertStringContainsString('MODIFY `p_code` varchar(120)', $sql);
 		self::assertStringContainsString('MODIFY `p_code` varchar(200)', $sql);
@@ -2204,7 +2249,7 @@ SQL,
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// c1.p_code widened to 120; c2.p_code kept at 200; p.code stays at 120; all utf8mb4.
 		self::assertSame('varchar(120)', $this->fetchColumnTypeOf($dbal, 'c1', 'p_code'));
@@ -2243,13 +2288,14 @@ SQL,
 	 */
 	public function testForeignKeyChildEndpointKeyLimitHoldsBack(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The CHILD endpoint's composite unique index overflows the 3072-byte key limit after conversion (it
 		// fits as utf8mb3: 600 + 2100 = 2700 < 3072, but utf8mb4 would need 800 + 2800 = 3600 > 3072). The
 		// child FK column is therefore unfixable, so the whole FK is held back: NEITHER endpoint is modified,
 		// the FK is not dropped, and a "left unconverted" violation is recorded. The emitted SQL must apply.
 		$db = 'outdated_collation_fk_child_keylimit';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2274,7 +2320,7 @@ SQL,
 		$dbal->exec("INSERT INTO `parent` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `child` (`id`, `parent_code`, `other`) VALUES (1, 'cz', 'x')");
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		$sql = $report->getSql();
 		// Neither FK endpoint is modified and the FK is left intact.
 		self::assertStringNotContainsString('MODIFY `parent_code`', $sql);
@@ -2309,12 +2355,13 @@ SQL,
 	 */
 	public function testForeignKeyParentEndpointKeyLimitHoldsBack(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Symmetric to the child case: the PARENT key column is part of a composite unique index that overflows
 		// the 3072-byte limit after conversion, while the child column alone would fit. The parent endpoint is
 		// unfixable, so the whole FK is held back — both endpoints untouched, FK not dropped, no failing SQL.
 		$db = 'outdated_collation_fk_parent_keylimit';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2340,7 +2387,7 @@ SQL,
 		$dbal->exec("INSERT INTO `parent` (`code`, `other`) VALUES ('cz', 'x')");
 		$dbal->exec("INSERT INTO `child` (`id`, `parent_code`) VALUES (1, 'cz')");
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		$sql = $report->getSql();
 		// Neither FK endpoint is modified and the FK is left intact.
 		self::assertStringNotContainsString('MODIFY `parent_code`', $sql);
@@ -2372,13 +2419,14 @@ SQL,
 	 */
 	public function testForeignKeyWidenedChildOverflowsHeldBack(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The child fits its own composite unique index after conversion (500*4 + 200*4 = 2800 < 3072), but
 		// WIDENING it to the parent's length (700) to satisfy the parent-driven length rule pushes the index
 		// over the limit (700*4 + 200*4 = 3600 > 3072). The widened child is therefore unfixable, so the FK is
 		// held back: neither endpoint converts NOR widens, the FK is not dropped, and the SQL applies cleanly.
 		$db = 'outdated_collation_fk_widen_overflow';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2403,7 +2451,7 @@ SQL,
 		$dbal->exec("INSERT INTO `parent` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `child` (`id`, `parent_code`, `other`) VALUES (1, 'cz', 'x')");
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		$sql = $report->getSql();
 		// Neither endpoint converts nor widens; the FK is left intact.
 		self::assertStringNotContainsString('MODIFY `parent_code`', $sql);
@@ -2432,6 +2480,7 @@ SQL,
 	 */
 	public function testExcludedTableNeedingConversionAbsentFromOutput(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// An excluded table whose columns ALSO need conversion must be wholly absent from analyse() and
 		// generate(): the by-table indexing never looks up its column/index rows.
 		$db = 'outdated_collation_excluded_needs_conversion';
@@ -2439,7 +2488,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2458,8 +2507,8 @@ CREATE TABLE `article` (
 SQL,
 		);
 
-		$violations = $auditor->analyse()->getViolations();
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 
 		// The included table converts.
 		self::assertStringContainsString('MODIFY `title`', $sql);
@@ -2481,12 +2530,13 @@ SQL,
 	 */
 	public function testExcludedUnderscoreTablesSkipped(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_underscore';
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2505,14 +2555,16 @@ CREATE TABLE `article` (
 SQL,
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The excluded `_audit` table is absent from the migration; the normal table is converted.
 		self::assertStringNotContainsString('`_audit`', $sql);
 		self::assertStringNotContainsString('`payload`', $sql);
 		self::assertStringContainsString('MODIFY `title`', $sql);
 
 		// The excluded table's column is not reported as a normal outdated column.
-		self::assertNull($this->findColumnViolation($auditor->analyse()->getViolations(), 'payload'));
+		self::assertNull(
+			$this->findColumnViolation(AuditorRunner::analyse($schema, $auditor)->getViolations(), 'payload'),
+		);
 
 		$this->runScript($dbal, $sql);
 
@@ -2526,6 +2578,7 @@ SQL,
 	 */
 	public function testExcludedTablesAreNotIntrospected(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The heavy introspection is scoped in SQL to the non-excluded tables, so an excluded table is
 		// never fetched. To prove the column data itself is never read (not merely filtered in PHP), the
 		// excluded table carries a latin1 column which, under the default report() mode, WOULD surface as
@@ -2535,7 +2588,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setExcludeTables((new TableExclude())->withPattern('^_'));
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		// Excluded by the `_*` glob; its latin1 column would be reported unfixable if introspected.
 		$dbal->exec(
@@ -2556,10 +2609,10 @@ CREATE TABLE `article` (
 SQL,
 		);
 
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 
 		// The in-scope table is planned for conversion.
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `title`', $sql);
 
 		// The excluded table is absent from the generated SQL.
@@ -2584,11 +2637,12 @@ SQL,
 	 */
 	public function testLatin1ReportedByDefault(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Default mode is report(): a legacy-charset column is NOT converted (the operator must first
 		// audit the data and pick a mode), but a utf8mb3 column in the same database still converts.
 		$db = 'outdated_collation_latin1';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2603,7 +2657,7 @@ SQL,
 		$dbal->exec("INSERT INTO `legacy` (`id`, `name`, `note`) VALUES (1, 'caf\xE9', 'x')");
 		$dbal->exec('SET NAMES utf8mb4');
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The legacy column is left untouched: no MODIFY of it and no VARBINARY two-step.
 		self::assertStringNotContainsString('MODIFY `name`', $sql);
 		self::assertStringNotContainsString('VARBINARY', $sql);
@@ -2612,7 +2666,7 @@ SQL,
 		self::assertStringContainsString('MODIFY `note`', $sql);
 
 		// A violation names the legacy charset and asks the operator to choose a mode.
-		$report = $this->findColumnViolation($auditor->analyse()->getViolations(), 'name');
+		$report = $this->findColumnViolation(AuditorRunner::analyse($schema, $auditor)->getViolations(), 'name');
 		self::assertNotNull($report);
 		self::assertStringContainsString("legacy charset 'latin1'", $report);
 		self::assertStringContainsString('choose a conversion mode', $report);
@@ -2631,12 +2685,13 @@ SQL,
 	 */
 	public function testMultibyteLegacyCharsetConvertedByDefault(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// A multibyte legacy charset (gbk, MAXLEN = 2) holds genuine multibyte data that transcodes
 		// losslessly to utf8mb4, so it converts straight under the DEFAULT config — no report() gate, no
 		// assumeGenuine() needed. This proves the routing now distinguishes multibyte from single-byte.
 		$db = 'outdated_collation_gbk';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2649,10 +2704,10 @@ SQL,
 		// Insert a CJK value deterministically as its gbk byte sequence, independent of the connection charset.
 		$dbal->exec("INSERT INTO `doc` (`id`, `title`) VALUES (1, CONVERT(_utf8mb4'中文' USING gbk))");
 
-		$before = $auditor->analyse()->getViolations();
+		$before = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $before);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// Straight conversion of both the column and the table default; no VARBINARY two-step.
 		self::assertStringContainsString('MODIFY `title`', $sql);
 		self::assertStringContainsString('DEFAULT CHARACTER SET = utf8mb4', $sql);
@@ -2661,7 +2716,7 @@ SQL,
 		$this->runScript($dbal, $sql);
 
 		// Round-trip clean: re-analyse reports nothing.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The CJK data reads back correctly as utf8mb4.
 		$dbal->exec('SET NAMES utf8mb4');
@@ -2675,12 +2730,13 @@ SQL,
 	 */
 	public function testLatin1AssumeGenuineConverts(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_latin1_genuine';
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
 		$config->setLegacyCharsetConversion(LegacyCharsetConversion::assumeGenuine());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2695,14 +2751,14 @@ SQL,
 		$dbal->exec("INSERT INTO `legacy` (`id`, `name`) VALUES (1, 'caf\xE9')");
 		$dbal->exec('SET NAMES utf8mb4');
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// Straight conversion: a single MODIFY, no VARBINARY two-step.
 		self::assertStringContainsString('MODIFY `name`', $sql);
 		self::assertStringNotContainsString('VARBINARY', $sql);
 		self::assertStringNotContainsString('varbinary', strtolower($sql));
 
 		$this->runScript($dbal, $sql);
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// Genuine latin1 data round-trips to the correct utf8mb4 character.
 		$row = $dbal->query('SELECT `name` FROM `legacy` WHERE `id` = 1')[0];
@@ -2715,12 +2771,13 @@ SQL,
 	 */
 	public function testLatin1AssumeDoubleEncodedTwoStep(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_latin1_double';
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
 		$config->setLegacyCharsetConversion(LegacyCharsetConversion::assumeDoubleEncoded());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2736,13 +2793,13 @@ SQL,
 		$dbal->exec("INSERT INTO `legacy` (`id`, `name`) VALUES (1, 'caf\xC3\xA9')");
 		$dbal->exec('SET NAMES utf8mb4');
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The two-step: reinterpret the bytes via VARBINARY, then read them as utf8mb4.
 		self::assertStringContainsString('MODIFY `name` varbinary(100)', $sql);
 		self::assertStringContainsString('MODIFY `name` varchar(100) CHARACTER SET utf8mb4', $sql);
 
 		$this->runScript($dbal, $sql);
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The two-step recovered the genuine character from the double-encoded bytes.
 		$row = $dbal->query('SELECT `name` FROM `legacy` WHERE `id` = 1')[0];
@@ -2755,6 +2812,7 @@ SQL,
 	 */
 	public function testLatin1TwoStepCarriesLockClause(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// The VARBINARY prefix ALTER of the double-encoding two-step must carry the same configured LOCK
 		// clause as the combined ALTER, so every emitted ALTER TABLE statement ends with it.
 		$db = 'outdated_collation_latin1_double_lock';
@@ -2762,7 +2820,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setLegacyCharsetConversion(LegacyCharsetConversion::assumeDoubleEncoded());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2777,7 +2835,7 @@ SQL,
 		$dbal->exec('SET NAMES utf8mb4');
 
 		$sql = (new Runner(
-			$dbal,
+			$schema,
 			[$auditor],
 			null,
 			null,
@@ -2794,7 +2852,7 @@ SQL,
 		}
 
 		$this->runScript($dbal, $sql);
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$row = $dbal->query('SELECT `name` FROM `legacy` WHERE `id` = 1')[0];
 		self::assertSame('café', $row['name']);
@@ -2806,6 +2864,7 @@ SQL,
 	 */
 	public function testLatin1AssumeDoubleEncodedReportsEnum(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// An ENUM column with a latin1 charset under assumeDoubleEncoded() cannot be byte-reinterpreted:
 		// enum values are enumerated, not raw bytes, and binaryTypeFor() cannot map an enum type. It must
 		// be reported UNFIXABLE and left out of the SQL entirely (no varbinary, no straight MODIFY).
@@ -2814,7 +2873,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setLegacyCharsetConversion(LegacyCharsetConversion::assumeDoubleEncoded());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2826,7 +2885,7 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `legacy_enum` (`id`, `status`) VALUES (1, 'active'), (2, 'pending')");
 
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $violations);
 
 		// The enum column surfaces a violation naming the legacy charset.
@@ -2834,7 +2893,7 @@ SQL,
 		self::assertNotNull($report);
 		self::assertStringContainsString("legacy charset 'latin1'", $report);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The enum column is NOT in the SQL: neither a varbinary two-step nor a straight MODIFY.
 		self::assertStringNotContainsString('varbinary', strtolower($sql));
 		self::assertStringNotContainsString('MODIFY `status`', $sql);
@@ -2852,12 +2911,13 @@ SQL,
 	 */
 	public function testModernizeRoundTrip(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_modernize';
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
 		$config->setTargetPolicy(CollationTargetPolicy::modernize());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2869,11 +2929,11 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `doc` (`id`, `title`) VALUES (1, 'Žluťoučký')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		self::assertStringContainsString('MODIFY `title`', $sql);
 		$this->runScript($dbal, $sql);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The resolver's modernize preference list is
 		// [utf8mb4_uca1400_as_ci, utf8mb4_unicode_520_ci, ...] for MariaDB and
@@ -2898,9 +2958,10 @@ SQL,
 	 */
 	public function testSessionFkVarRestored(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_session_fk';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2923,7 +2984,7 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// Guard: the FK rebuild must actually emit the session wrap.
 		self::assertStringContainsString('SET SESSION foreign_key_checks = 0', $sql);
 		self::assertStringContainsString('foreign_key_checks = @ORISAI_DBAUDIT_FK', $sql);
@@ -2942,12 +3003,13 @@ SQL,
 	 */
 	public function testLatin1TableDefaultRespectsMode(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Default mode (report()): a table whose DEFAULT CHARSET is a legacy charset must NOT have its
 		// table default converted — consistent with column-level report() behaviour. analyse() must still
 		// surface the legacy table default as an advisory.
 		$db = 'outdated_collation_latin1_tabledefault';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2958,13 +3020,13 @@ CREATE TABLE `legacy` (
 SQL,
 		);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// Neither the table default nor the latin1 column must appear in the generated SQL.
 		self::assertStringNotContainsString('DEFAULT CHARACTER SET', $sql);
 		self::assertStringNotContainsString('MODIFY `name`', $sql);
 
 		// analyse() must surface the legacy table default as a violation.
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		$tableViolation = $this->findViolationContaining($violations, "legacy charset 'latin1'");
 		self::assertNotNull($tableViolation);
 		self::assertStringContainsString('choose a conversion mode', $tableViolation);
@@ -2979,7 +3041,7 @@ SQL,
 
 		$config = new OutdatedCollationConfig();
 		$config->setLegacyCharsetConversion(LegacyCharsetConversion::assumeGenuine());
-		$auditor2 = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor2 = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -2993,14 +3055,14 @@ SQL,
 		$dbal->exec("INSERT INTO `legacy` (`id`, `name`) VALUES (1, 'caf\xE9')");
 		$dbal->exec('SET NAMES utf8mb4');
 
-		$sql2 = (new Runner($dbal, [$auditor2]))->generate()->getSql();
+		$sql2 = (new Runner($schema, [$auditor2]))->generate()->getSql();
 		// Both the table default and the column must be converted.
 		self::assertStringContainsString('DEFAULT CHARACTER SET', $sql2);
 		self::assertStringContainsString('MODIFY `name`', $sql2);
 
 		$this->runScript($dbal, $sql2);
 		// Round-trip: re-analyse must be clean.
-		self::assertSame([], $auditor2->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor2)->getViolations());
 
 		// Genuine latin1 data round-trips correctly.
 		$row = $dbal->query('SELECT `name` FROM `legacy` WHERE `id` = 1')[0];
@@ -3012,6 +3074,7 @@ SQL,
 	 */
 	public function testExplicitReferenceInViewWarned(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_ref_view';
 		$this->setUpDatabase($dbal, $db);
 		$dbal->exec(
@@ -3025,9 +3088,9 @@ SQL,
 			. ' FROM `article`',
 		);
 
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
-		$migration = (new Runner($dbal, [$auditor]))->generate();
+		$migration = (new Runner($schema, [$auditor]))->generate();
 		// The clean SQL no longer embeds the charset-reference warning block — that now lives in the
 		// migration's advisories (re-rendered as -- comment lines by the command, not here).
 		self::assertStringNotContainsString('-- WARNING', $migration->getSql());
@@ -3040,7 +3103,7 @@ SQL,
 		self::assertStringContainsString('utf8mb3_czech_ci', $genAdvisory);
 		self::assertNotNull($this->findAdvisoryContaining($genAdvisories, 'VIEW article_sorted references'));
 
-		$advisories = $auditor->analyse()->getAdvisories();
+		$advisories = AuditorRunner::analyse($schema, $auditor)->getAdvisories();
 		$advisory = $this->findAdvisoryContaining($advisories, 'This migration changes charsets/collations');
 		self::assertNotNull($advisory);
 		self::assertStringContainsString('cannot inspect application code', $advisory);
@@ -3056,6 +3119,7 @@ SQL,
 	 */
 	public function testAdvisoryWithoutExplicitReferences(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_ref_none';
 		$this->setUpDatabase($dbal, $db);
 		$dbal->exec(
@@ -3063,12 +3127,12 @@ SQL,
 			. ' DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_czech_ci',
 		);
 
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		// The clean SQL no longer carries the warning block.
-		self::assertStringNotContainsString('-- WARNING', (new Runner($dbal, [$auditor]))->generate()->getSql());
+		self::assertStringNotContainsString('-- WARNING', (new Runner($schema, [$auditor]))->generate()->getSql());
 
-		$advisories = $auditor->analyse()->getAdvisories();
+		$advisories = AuditorRunner::analyse($schema, $auditor)->getAdvisories();
 		// The standing advisory with grep targets is always present once something is migrated.
 		$advisory = $this->findAdvisoryContaining($advisories, 'This migration changes charsets/collations');
 		self::assertNotNull($advisory);
@@ -3082,6 +3146,7 @@ SQL,
 	 */
 	public function testNoWarningWhenNothingToMigrate(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_ref_clean';
 		$shortcuts = new MysqlShortcuts($dbal);
 		$shortcuts->dropDatabaseIfExists($db);
@@ -3094,12 +3159,12 @@ SQL,
 			. ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci',
 		);
 
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
-		$migration = (new Runner($dbal, [$auditor]))->generate();
+		$migration = (new Runner($schema, [$auditor]))->generate();
 		self::assertSame('', $migration->getSql());
 		self::assertSame([], $migration->getAdvisories());
-		self::assertSame([], $auditor->analyse()->getAdvisories());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getAdvisories());
 	}
 
 	/**
@@ -3110,9 +3175,10 @@ SQL,
 	 */
 	public function testRunnerConvertsUtf8mb3Table(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_runner_plain';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3125,11 +3191,11 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `article` (`id`, `title`, `body`) VALUES (1, 'Příliš', 'accented text')");
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		self::assertNotSame('', $report->getSql());
 		$this->runScript($dbal, $report->getSql());
 
-		$after = (new Runner($dbal, [$auditor]))->analyse();
+		$after = (new Runner($schema, [$auditor]))->analyse();
 		foreach ($after->getErrors() as $violation) {
 			self::assertStringStartsNotWith('outdated_collation.', $violation->getKey());
 		}
@@ -3145,11 +3211,12 @@ SQL,
 	 */
 	public function testRunnerConvertsUniqueIndexColumn(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// End-to-end through the Runner: an order-preserving unique-indexed column converts via a plain
 		// MODIFY, the index is never dropped/re-added, and re-analyse is clean.
 		$db = 'outdated_collation_runner_uq';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3165,7 +3232,7 @@ SQL,
 			"INSERT INTO `tag` (`id`, `name`, `scope`) VALUES (1, 'red', 'global'), (2, 'blue', 'local')",
 		);
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		self::assertNotSame('', $report->getSql());
 		self::assertStringContainsString('MODIFY `name`', $report->getSql());
 		self::assertStringContainsString('MODIFY `scope`', $report->getSql());
@@ -3173,7 +3240,7 @@ SQL,
 		self::assertStringNotContainsString('ADD UNIQUE INDEX', $report->getSql());
 		$this->runScript($dbal, $report->getSql());
 
-		$after = (new Runner($dbal, [$auditor]))->analyse();
+		$after = (new Runner($schema, [$auditor]))->analyse();
 		foreach ($after->getErrors() as $violation) {
 			self::assertStringStartsNotWith('outdated_collation.', $violation->getKey());
 		}
@@ -3195,12 +3262,13 @@ SQL,
 	 */
 	public function testRunnerLatin1DoubleEncodedTwoStep(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_runner_latin1';
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
 		$config->setLegacyCharsetConversion(LegacyCharsetConversion::assumeDoubleEncoded());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3214,14 +3282,14 @@ SQL,
 		$dbal->exec("INSERT INTO `legacy` (`id`, `name`) VALUES (1, 'caf\xC3\xA9')");
 		$dbal->exec('SET NAMES utf8mb4');
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		self::assertNotSame('', $report->getSql());
 		// The two-step: the standalone VARBINARY prefix ALTER, then the utf8mb4 MODIFY in the combined ALTER.
 		self::assertStringContainsString('MODIFY `name` varbinary(100)', $report->getSql());
 		self::assertStringContainsString('MODIFY `name` varchar(100) CHARACTER SET utf8mb4', $report->getSql());
 		$this->runScript($dbal, $report->getSql());
 
-		$after = (new Runner($dbal, [$auditor]))->analyse();
+		$after = (new Runner($schema, [$auditor]))->analyse();
 		foreach ($after->getErrors() as $violation) {
 			self::assertStringStartsNotWith('outdated_collation.', $violation->getKey());
 		}
@@ -3240,12 +3308,13 @@ SQL,
 	 */
 	public function testRunnerLatin1DoubleEncodedTwoStepWithLock(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_runner_latin1_lock';
 		$this->setUpDatabase($dbal, $db);
 
 		$config = new OutdatedCollationConfig();
 		$config->setLegacyCharsetConversion(LegacyCharsetConversion::assumeDoubleEncoded());
-		$auditor = new OutdatedCollationMysqlAuditor($dbal, $config);
+		$auditor = new OutdatedCollationMysqlAuditor($schema, $config);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3260,7 +3329,7 @@ SQL,
 		$dbal->exec('SET NAMES utf8mb4');
 
 		$report = (new Runner(
-			$dbal,
+			$schema,
 			[$auditor],
 			null,
 			null,
@@ -3280,7 +3349,7 @@ SQL,
 
 		$this->runScript($dbal, $report->getSql());
 
-		$after = (new Runner($dbal, [$auditor]))->analyse();
+		$after = (new Runner($schema, [$auditor]))->analyse();
 		foreach ($after->getErrors() as $violation) {
 			self::assertStringStartsNotWith('outdated_collation.', $violation->getKey());
 		}
@@ -3296,9 +3365,10 @@ SQL,
 	 */
 	public function testRunnerConvertsForeignKeyPair(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_runner_fk';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3321,13 +3391,13 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		self::assertNotSame('', $report->getSql());
 		self::assertStringContainsString('DROP FOREIGN KEY `fk_city_country`', $report->getSql());
 		self::assertStringContainsString('ADD CONSTRAINT `fk_city_country`', $report->getSql());
 		$this->runScript($dbal, $report->getSql());
 
-		$after = (new Runner($dbal, [$auditor]))->analyse();
+		$after = (new Runner($schema, [$auditor]))->analyse();
 		foreach ($after->getErrors() as $violation) {
 			self::assertStringStartsNotWith('outdated_collation.', $violation->getKey());
 		}
@@ -3354,9 +3424,10 @@ SQL,
 	 */
 	public function testRunnerChangesDatabaseDefault(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_runner_dbdefault';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3367,12 +3438,12 @@ CREATE TABLE `note` (
 SQL,
 		);
 
-		$report = (new Runner($dbal, [$auditor]))->generate();
+		$report = (new Runner($schema, [$auditor]))->generate();
 		self::assertNotSame('', $report->getSql());
 		self::assertStringContainsString('ALTER DATABASE', $report->getSql());
 		$this->runScript($dbal, $report->getSql());
 
-		$after = (new Runner($dbal, [$auditor]))->analyse();
+		$after = (new Runner($schema, [$auditor]))->analyse();
 		foreach ($after->getErrors() as $violation) {
 			self::assertStringStartsNotWith('outdated_collation.', $violation->getKey());
 		}
@@ -3393,10 +3464,11 @@ SQL,
 	 */
 	public function testRowFormatBumpIgnoreAware(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Baseline: no ignores — both columns convert and the bump is emitted.
 		$dbFull = 'outdated_collation_ignore_bump_full';
 		$this->setUpDatabase($dbal, $dbFull);
-		$auditorFull = new OutdatedCollationMysqlAuditor($dbal);
+		$auditorFull = new OutdatedCollationMysqlAuditor($schema);
 
 		// `big`: varchar(255) under an index; utf8mb4 conversion → 255×4=1020 > 767 bytes → forces DYNAMIC.
 		// `small`: varchar(10) with no index; 10×4=40 bytes — well inside the COMPACT cap.
@@ -3412,17 +3484,17 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `widget` (`id`, `big`, `small`) VALUES (1, 'hello', 'hi')");
 
-		$fullSql = (new Runner($dbal, [$auditorFull]))->generate()->getSql();
+		$fullSql = (new Runner($schema, [$auditorFull]))->generate()->getSql();
 		self::assertStringContainsString('ROW_FORMAT = DYNAMIC', $fullSql);
 		self::assertStringContainsString('MODIFY `big`', $fullSql);
 		self::assertStringContainsString('MODIFY `small`', $fullSql);
 		$this->runScript($dbal, $fullSql);
-		self::assertSame([], $auditorFull->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditorFull)->getViolations());
 
 		// With the bump-driver ignored: the surviving column (`small`) fits COMPACT — no bump emitted.
 		$dbPartial = 'outdated_collation_ignore_bump_partial';
 		$this->setUpDatabase($dbal, $dbPartial);
-		$auditorPartial = new OutdatedCollationMysqlAuditor($dbal);
+		$auditorPartial = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3439,7 +3511,7 @@ SQL,
 		$ignores = new IgnoreList([
 			new IgnoredError(null, null, 'widget', 'big', 'outdated_collation.column'),
 		]);
-		$partialSql = (new Runner($dbal, [$auditorPartial], $ignores))->generate()->getSql();
+		$partialSql = (new Runner($schema, [$auditorPartial], $ignores))->generate()->getSql();
 
 		// The bump driver is gone from survivors: no ROW_FORMAT = DYNAMIC.
 		self::assertStringNotContainsString('ROW_FORMAT = DYNAMIC', $partialSql);
@@ -3455,7 +3527,10 @@ SQL,
 		self::assertSame('utf8mb3', $cols['big']['CHARACTER_SET_NAME']);
 
 		// `big` remains reported — the ignore only suppresses generation, not detection.
-		$bigViolation = $this->findColumnViolation($auditorPartial->analyse()->getViolations(), 'big');
+		$bigViolation = $this->findColumnViolation(
+			AuditorRunner::analyse($schema, $auditorPartial)->getViolations(),
+			'big',
+		);
 		self::assertNotNull($bigViolation);
 	}
 
@@ -3467,6 +3542,7 @@ SQL,
 	 */
 	public function testRowFormatBumpDeterministic(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_bump_deterministic';
 		$this->setUpDatabase($dbal, $db);
 
@@ -3482,14 +3558,14 @@ SQL,
 		);
 		$dbal->exec("INSERT INTO `slot` (`id`, `token`) VALUES (1, 'aaa'), (2, 'bbb'), (3, 'ccc')");
 
-		$sqlWithData = (new Runner($dbal, [new OutdatedCollationMysqlAuditor($dbal)]))->generate()->getSql();
+		$sqlWithData = (new Runner($schema, [new OutdatedCollationMysqlAuditor($schema)]))->generate()->getSql();
 		// Precondition: the bump is present with rows in the table.
 		self::assertStringContainsString('ROW_FORMAT = DYNAMIC', $sqlWithData);
 
 		$dbal->exec('DELETE FROM `slot`');
 
 		// Fresh runner forces a new SchemaContext read from the now-empty table; schema is unchanged.
-		$sqlEmpty = (new Runner($dbal, [new OutdatedCollationMysqlAuditor($dbal)]))->generate()->getSql();
+		$sqlEmpty = (new Runner($schema, [new OutdatedCollationMysqlAuditor($schema)]))->generate()->getSql();
 		self::assertSame($sqlWithData, $sqlEmpty);
 	}
 
@@ -3502,10 +3578,11 @@ SQL,
 	 */
 	public function testForeignKeyEndpointIgnoreHeldBack(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		// Baseline: no ignores — both endpoints convert and the FK is dropped+rebuilt cleanly.
 		$dbFull = 'outdated_collation_ignore_fk_full';
 		$this->setUpDatabase($dbal, $dbFull);
-		$auditorFull = new OutdatedCollationMysqlAuditor($dbal);
+		$auditorFull = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3528,7 +3605,7 @@ SQL,
 		$dbal->exec("INSERT INTO `country` (`code`) VALUES ('cz')");
 		$dbal->exec("INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-		$fullSql = (new Runner($dbal, [$auditorFull]))->generate()->getSql();
+		$fullSql = (new Runner($schema, [$auditorFull]))->generate()->getSql();
 		// Both FK endpoints must convert.
 		self::assertStringContainsString('MODIFY `code`', $fullSql);
 		self::assertStringContainsString('MODIFY `country_code`', $fullSql);
@@ -3538,13 +3615,13 @@ SQL,
 		// Apply cleanly on this engine — no ERROR 3780.
 		$this->runScript($dbal, $fullSql);
 		// Idempotent: re-analyse is clean after both endpoints converted.
-		self::assertSame([], $auditorFull->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditorFull)->getViolations());
 
 		// With the PARENT endpoint ignored: the planner holds back BOTH endpoints to prevent a
 		// mismatched ADD CONSTRAINT that would cause ERROR 3780.
 		$dbPartial = 'outdated_collation_ignore_fk_partial';
 		$this->setUpDatabase($dbal, $dbPartial);
-		$auditorPartial = new OutdatedCollationMysqlAuditor($dbal);
+		$auditorPartial = new OutdatedCollationMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3570,7 +3647,7 @@ SQL,
 		$ignores = new IgnoreList([
 			new IgnoredError(null, null, 'country', 'code', 'outdated_collation.column'),
 		]);
-		$partialReport = (new Runner($dbal, [$auditorPartial], $ignores))->generate();
+		$partialReport = (new Runner($schema, [$auditorPartial], $ignores))->generate();
 		$partialSql = $partialReport->getSql();
 
 		// Neither endpoint is converted — holding back the child prevents a mismatched ADD CONSTRAINT.
@@ -3603,7 +3680,10 @@ SQL,
 
 		// The child's outdated_collation violation is still reported on re-analyse (ignore suppresses
 		// generation only, not detection).
-		$childViolation = $this->findColumnViolation($auditorPartial->analyse()->getViolations(), 'country_code');
+		$childViolation = $this->findColumnViolation(
+			AuditorRunner::analyse($schema, $auditorPartial)->getViolations(),
+			'country_code',
+		);
 		self::assertNotNull($childViolation);
 	}
 
@@ -3616,9 +3696,10 @@ SQL,
 	 */
 	public function testWeirdIdentifierEscapedInMigration(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_weird_id';
 		$this->setUpDatabase($dbal, $db);
-		$auditor = new OutdatedCollationMysqlAuditor($dbal);
+		$auditor = new OutdatedCollationMysqlAuditor($schema);
 
 		// Column name od`d contains a literal backtick; in SQL the backtick is doubled inside back-quotes.
 		$dbal->exec(
@@ -3626,10 +3707,10 @@ SQL,
 			. ' ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_czech_ci',
 		);
 
-		$before = $auditor->analyse()->getViolations();
+		$before = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertNotSame([], $before);
 
-		$sql = (new Runner($dbal, [$auditor]))->generate()->getSql();
+		$sql = (new Runner($schema, [$auditor]))->generate()->getSql();
 		// The generated SQL must double the backtick inside back-quotes, not produce a naively wrapped form.
 		self::assertStringContainsString('`od``d`', $sql);
 
@@ -3637,7 +3718,7 @@ SQL,
 		$this->runScript($dbal, $sql);
 
 		// Idempotent: re-analyse reports nothing after conversion.
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// The column is now utf8mb4 — escaping worked end-to-end.
 		$columns = $this->fetchColumnsOf($dbal, 'weird');
@@ -3653,10 +3734,11 @@ SQL,
 	 */
 	public function testTwoAuditorColumnMerge(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
+		$schema = new SchemaProvider($dbal);
 		$db = 'outdated_collation_two_auditor_merge';
 		$this->setUpDatabase($dbal, $db);
-		$collationAuditor = new OutdatedCollationMysqlAuditor($dbal);
-		$nullableAuditor = new NullableWithNoNullsMysqlAuditor($dbal);
+		$collationAuditor = new OutdatedCollationMysqlAuditor($schema);
+		$nullableAuditor = new NullableWithNoNullsMysqlAuditor($schema);
 
 		$dbal->exec(
 			<<<'SQL'
@@ -3671,10 +3753,10 @@ SQL,
 		);
 
 		// Before: both auditors flag `label`.
-		self::assertNotSame([], $collationAuditor->analyse()->getViolations());
+		self::assertNotSame([], AuditorRunner::analyse($schema, $collationAuditor)->getViolations());
 		self::assertNotSame([], $nullableAuditor->analyse()->getViolations());
 
-		$report = (new Runner($dbal, [$collationAuditor, $nullableAuditor]))->generate();
+		$report = (new Runner($schema, [$collationAuditor, $nullableAuditor]))->generate();
 
 		// No conflicts: the planner merges the two deltas for `label` instead of clashing.
 		self::assertSame([], $report->getUnfixable());
@@ -3693,7 +3775,7 @@ SQL,
 		$this->runScript($dbal, $sql);
 
 		// Idempotent: neither auditor flags `label` after the migration.
-		self::assertSame([], $collationAuditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $collationAuditor)->getViolations());
 		self::assertSame([], $nullableAuditor->analyse()->getViolations());
 
 		// The column is now utf8mb4, NOT NULL, and still carries the comment.

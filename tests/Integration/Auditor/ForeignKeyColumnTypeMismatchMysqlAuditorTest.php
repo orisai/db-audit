@@ -12,6 +12,7 @@ use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\CountingDbalAdapter;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -40,7 +41,8 @@ final class ForeignKeyColumnTypeMismatchMysqlAuditorTest extends TestCase
 	public function testCharacterSet(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$key = 'foreign_key.charset_mismatch';
 
@@ -49,7 +51,7 @@ final class ForeignKeyColumnTypeMismatchMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		if ($engine === DatabaseEngine::mariadb()) {
 			// MariaDB enforces a matching character set when a foreign key is created and refuses to alter,
@@ -78,7 +80,7 @@ CREATE TABLE varchar_charset_foreign_key (
 SQL,
 			);
 
-			self::assertEquals([], $auditor->analyse()->getViolations());
+			self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 			return;
 		}
@@ -149,7 +151,7 @@ SQL,
 		// The parent id is CHARACTER SET utf8 (MAXLEN 3), reported as utf8mb3 by MySQL 8; each child was narrowed
 		// to latin1 (MAXLEN 1). latin1 is a single-byte legacy charset, so conversion is blocked — every charset
 		// mismatch stays report-only regardless of MAXLEN ordering.
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -169,8 +171,8 @@ SQL,
 				. ' but the character set does not match.',
 				new ColumnViolationSource($db, null, 'varchar_charset_foreign_key_2', 'ref_id'),
 			),
-		], $auditor->analyse()->getViolations());
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -179,7 +181,8 @@ SQL,
 	public function testSize(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$key = 'foreign_key.size_mismatch';
 
@@ -188,7 +191,7 @@ SQL,
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -240,7 +243,7 @@ SQL,
 		// is varchar(10) and the parent varchar(20). Same base type, child shorter, so every size mismatch is a
 		// WIDEN: fixable by widening the child to the parent length.
 		$hint = 'Run db-audit:generate to produce the migration SQL.';
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -281,8 +284,8 @@ SQL,
 						->setCharLength(20),
 				],
 			),
-		], $auditor->analyse()->getViolations());
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -294,7 +297,8 @@ SQL,
 	public function testSizeWiden(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__size_widen';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -350,7 +354,7 @@ SQL,
 						->setCharLength(30),
 				],
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -364,7 +368,8 @@ SQL,
 	public function testCharsetSafeAlign(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__charset_safe';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -394,7 +399,7 @@ CREATE TABLE referencing_table (
 SQL,
 			);
 
-			self::assertEquals([], $auditor->analyse()->getViolations());
+			self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 			return;
 		}
@@ -448,7 +453,7 @@ SQL,
 				. ' but the character set does not match.',
 				new ColumnViolationSource($db, null, 'referencing_table', 'ref_id'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -461,7 +466,8 @@ SQL,
 	public function testCharsetSafeAlignUtf8mb3(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__charset_safe_utf8mb3';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -491,7 +497,7 @@ CREATE TABLE referencing_table (
 SQL,
 			);
 
-			self::assertEquals([], $auditor->analyse()->getViolations());
+			self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 			return;
 		}
@@ -554,7 +560,7 @@ SQL,
 						->setCharsetCollation('utf8mb4', 'utf8mb4_general_ci'),
 				],
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -567,7 +573,8 @@ SQL,
 	public function testCharsetUnsafe(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__charset_unsafe';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -597,7 +604,7 @@ CREATE TABLE referencing_table (
 SQL,
 			);
 
-			self::assertEquals([], $auditor->analyse()->getViolations());
+			self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 			return;
 		}
@@ -659,7 +666,7 @@ SQL,
 				. ' but the column size does not match.',
 				new ColumnViolationSource($db, null, 'referencing_table', 'ref_id'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -671,7 +678,8 @@ SQL,
 	public function testCharVsVarchar(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__char_vs_varchar';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -719,7 +727,7 @@ SQL,
 				. ' but the column size does not match.',
 				new ColumnViolationSource($db, null, 'referencing_table', 'ref_id'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -732,7 +740,8 @@ SQL,
 	public function testSizeBenign(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__size_benign';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -780,7 +789,7 @@ SQL,
 				. ' but the column size does not match.',
 				new ColumnViolationSource($db, null, 'referencing_table', 'ref_id'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -791,14 +800,15 @@ SQL,
 	public function testNonExistentTable(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__non_existent_table';
 		$shortcuts->dropDatabaseIfExists($db);
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -826,9 +836,9 @@ SET FOREIGN_KEY_CHECKS = 1;
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
-		self::assertEquals([], $auditor->analyse()->getViolations());
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -901,14 +911,15 @@ SQL,
 	public function testType(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_type_mismatch__type';
 		$shortcuts->dropDatabaseIfExists($db);
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -1309,8 +1320,8 @@ SQL,
 		$counting = new CountingDbalAdapter($dbal);
 		$schema = new SchemaProvider($counting);
 
-		$typeMismatch = new ForeignKeyColumnTypeMismatchMysqlAuditor($counting, $schema);
-		$referencedExistence = new ForeignKeyReferencedColumnExistenceMysqlAuditor($counting, $schema);
+		$typeMismatch = new ForeignKeyColumnTypeMismatchMysqlAuditor($schema);
+		$referencedExistence = new ForeignKeyReferencedColumnExistenceMysqlAuditor($schema);
 
 		$typeMismatch->analyse();
 		$referencedExistence->analyse();

@@ -7,6 +7,7 @@ use Orisai\DbAudit\Auditor\NullableWithNoNullsMysqlAuditor;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -65,7 +66,8 @@ SQL,
 		$dbal->exec(/** @lang MySQL */ "INSERT INTO `parent_t` (`id`) VALUES ('row1')");
 		$dbal->exec(/** @lang MySQL */ "INSERT INTO `child_t` (`parent_id`) VALUES ('row1')");
 
-		$report = (new Runner($dbal, [new NullableWithNoNullsMysqlAuditor($dbal)]))->generate();
+		$schema = new SchemaProvider($dbal);
+		$report = (new Runner($schema, [new NullableWithNoNullsMysqlAuditor($schema)]))->generate();
 
 		// Gate: generate() ran and flagged at least one column (parent + child both produce fixes).
 		self::assertGreaterThanOrEqual(1, $report->getGeneratedCount());
@@ -98,7 +100,7 @@ SQL,
 		self::assertSame('NO', (string) $childRows[0]['IS_NULLABLE']);
 
 		// Re-analysing after the migration is idempotent: no further SQL is generated.
-		$rerunSql = (new Runner($dbal, [new NullableWithNoNullsMysqlAuditor($dbal)]))->generate()->getSql();
+		$rerunSql = (new Runner($schema, [new NullableWithNoNullsMysqlAuditor($schema)]))->generate()->getSql();
 		self::assertSame('', $rerunSql);
 	}
 

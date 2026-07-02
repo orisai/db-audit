@@ -9,7 +9,9 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -36,7 +38,8 @@ final class NonTransactionalEngineMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new NonTransactionalEngineMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new NonTransactionalEngineMysqlAuditor($schema);
 		$key = 'non_transactional_engine';
 
 		$db = 'non_transactional_engine';
@@ -44,7 +47,7 @@ final class NonTransactionalEngineMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `myisam_t` (`a` int NOT NULL) ENGINE=MyISAM');
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `memory_t` (`a` int NOT NULL) ENGINE=MEMORY');
@@ -67,7 +70,7 @@ final class NonTransactionalEngineMysqlAuditorTest extends TestCase
 				'Convert the table to InnoDB for transactions, foreign keys and crash safety.',
 				[new TableEngineChange($db, 'myisam_t', 'InnoDB')],
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }

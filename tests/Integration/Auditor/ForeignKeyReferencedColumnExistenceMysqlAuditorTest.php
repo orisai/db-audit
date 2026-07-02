@@ -8,7 +8,9 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 use Throwable;
@@ -36,7 +38,8 @@ final class ForeignKeyReferencedColumnExistenceMysqlAuditorTest extends TestCase
 	public function testNonExistentTable(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyReferencedColumnExistenceMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyReferencedColumnExistenceMysqlAuditor($schema);
 
 		$key = 'foreign_key.referenced_table_missing';
 
@@ -45,7 +48,7 @@ final class ForeignKeyReferencedColumnExistenceMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -87,7 +90,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -107,8 +110,8 @@ SQL,
 				. ' references column [nonexistent_table][id] but the referenced table does not exist.',
 				new ColumnViolationSource($db, null, 'references_nonexistent_table_2', 'ref_id'),
 			),
-		], $auditor->analyse()->getViolations());
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**

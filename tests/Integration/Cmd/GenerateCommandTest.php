@@ -15,6 +15,7 @@ use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -46,7 +47,8 @@ final class GenerateCommandTest extends TestCase
 	 */
 	public function testReportsUnfixableFirstAndFails(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$tester = new CommandTester(new GenerateCommand(new Runner($dbal, [$this->generator(true)])));
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(new GenerateCommand(new Runner($schema, [$this->generator(true)])));
 
 		$tester->execute([]);
 
@@ -64,7 +66,8 @@ final class GenerateCommandTest extends TestCase
 	public function testWritesSqlToFile(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$path = $this->tempPath();
-		$tester = new CommandTester(new GenerateCommand(new Runner($dbal, [$this->generator(true)])));
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(new GenerateCommand(new Runner($schema, [$this->generator(true)])));
 
 		$tester->execute(['--output' => $path]);
 
@@ -79,7 +82,8 @@ final class GenerateCommandTest extends TestCase
 	 */
 	public function testSucceedsWithoutUnfixable(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$tester = new CommandTester(new GenerateCommand(new Runner($dbal, [$this->generator(false)])));
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(new GenerateCommand(new Runner($schema, [$this->generator(false)])));
 
 		$tester->execute([]);
 

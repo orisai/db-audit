@@ -143,6 +143,15 @@ SQL,
 		}
 
 		$this->foreignKeyGraph = null;
+		// A coordinator re-prime must reflect a migration applied between runs, so the DDL-mutable snapshots that
+		// are otherwise cached for the provider's lifetime (the table-name listing, the database default
+		// charset/collation, and the definition listings) are dropped here to be re-read on next access.
+		$this->tableNames = null;
+		$this->databaseDefault = null;
+		$this->views = null;
+		$this->routines = null;
+		$this->triggers = null;
+		$this->events = null;
 	}
 
 	public function isTablesPrimed(): bool

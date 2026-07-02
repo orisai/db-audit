@@ -9,7 +9,9 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -36,14 +38,15 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testEmptyDatabase(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 
 		$db = 'redundant_index_empty';
 		$shortcuts->dropDatabaseIfExists($db);
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -52,7 +55,8 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testExactDuplicateNonUnique(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 		$key = 'redundant_index';
 
 		$db = 'redundant_index_duplicate';
@@ -74,7 +78,7 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 				"Drop the redundant index 'idx_a_dup'.",
 				[new DropIndexChange($db, 'dup', 'idx_a_dup')],
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -83,7 +87,8 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testPrefixRedundant(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 		$key = 'redundant_index';
 
 		$db = 'redundant_index_prefix';
@@ -105,7 +110,7 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 				"Drop the redundant index 'idx_a'.",
 				[new DropIndexChange($db, 'pref', 'idx_a')],
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -114,7 +119,8 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testCoveredRegardlessOfName(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 		$key = 'redundant_index';
 
 		$db = 'redundant_index_covered';
@@ -138,7 +144,7 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 				"Drop the redundant index 'idx_z'.",
 				[new DropIndexChange($db, 'cov', 'idx_z')],
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -147,7 +153,8 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testUniquePrefixNotFlagged(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 
 		$db = 'redundant_index_unique';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -161,7 +168,7 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 			'CREATE TABLE `uniq` (`a` int NOT NULL, `b` int NOT NULL, UNIQUE KEY `uq_a` (`a`), INDEX `idx_ab` (`a`, `b`))',
 		);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -170,7 +177,8 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testPrimaryNeverFlagged(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 
 		$db = 'redundant_index_primary';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -184,7 +192,7 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 			'CREATE TABLE `prim` (`a` int NOT NULL, `b` int NOT NULL, PRIMARY KEY (`a`), INDEX `idx_ab` (`a`, `b`))',
 		);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -193,7 +201,8 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testNonOverlappingNotFlagged(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 
 		$db = 'redundant_index_disjoint';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -205,7 +214,7 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 			'CREATE TABLE `disjoint` (`a` int NOT NULL, `b` int NOT NULL, INDEX `idx_a` (`a`), INDEX `idx_b` (`b`))',
 		);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -214,7 +223,8 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 	public function testPrefixLengthDifferenceNotRedundant(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new RedundantIndexMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new RedundantIndexMysqlAuditor($schema);
 
 		$db = 'redundant_index_subpart';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -228,7 +238,7 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 			'CREATE TABLE `subpart` (`v` varchar(50) NOT NULL, INDEX `idx_full` (`v`), INDEX `idx_prefix` (`v`(10)))',
 		);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }

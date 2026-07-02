@@ -9,6 +9,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -61,7 +62,8 @@ final class ForeignKeyAlignSingleByteLegacyTest extends TestCase
 		$shortcuts->useDatabase($db);
 
 		// Default config -> LegacyCharsetConversion::report(): latin1 is reported, never auto-converted.
-		$auditors = [new OutdatedCollationMysqlAuditor($dbal), new NullableWithNoNullsMysqlAuditor($dbal)];
+		$schema = new SchemaProvider($dbal);
+		$auditors = [new OutdatedCollationMysqlAuditor($schema), new NullableWithNoNullsMysqlAuditor($schema)];
 
 		if ($engine === DatabaseEngine::mariadb()) {
 			// A matching latin1<->latin1 foreign key (the mixed-charset variant cannot be built on MariaDB). The
@@ -90,7 +92,7 @@ SQL,
 			$dbal->exec(/** @lang MySQL */ "INSERT INTO `country` (`code`) VALUES ('cz')");
 			$dbal->exec(/** @lang MySQL */ "INSERT INTO `city` (`id`, `country_code`) VALUES (1, 'cz')");
 
-			$sql = (new Runner($dbal, $auditors))->generate()->getSql();
+			$sql = (new Runner($schema, $auditors))->generate()->getSql();
 
 			// The latin1 child is never converted to utf8mb4; its NOT NULL MODIFY keeps latin1.
 			self::assertStringContainsString(
@@ -142,7 +144,7 @@ SQL,
 		);
 		$dbal->exec(/** @lang MySQL */ 'SET FOREIGN_KEY_CHECKS = 1');
 
-		$report = (new Runner($dbal, $auditors))->generate();
+		$report = (new Runner($schema, $auditors))->generate();
 		$sql = $report->getSql();
 
 		// Align guard: the latin1 child is not force-converted to the parent's wider charset; its NOT NULL MODIFY

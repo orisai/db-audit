@@ -26,8 +26,6 @@ final class NonTransactionalEngineMysqlAuditor extends NonTransactionalEngineAud
 
 	public function analyse(): AnalysisResult
 	{
-		$this->refreshOwnedSchema();
-
 		$db = $this->schema->getDatabaseDefault()['name'];
 
 		$violations = [];

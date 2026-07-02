@@ -10,7 +10,9 @@ use Orisai\DbAudit\Collation\OutdatedCollationConfig;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -72,7 +74,8 @@ SQL,
 	 */
 	public function testCategoryIsData(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($schema);
 
 		self::assertEquals(AnalyserCategory::data(), $auditor->getCategory());
 		self::assertNotEquals(AnalyserCategory::structure(), $auditor->getCategory());
@@ -86,18 +89,19 @@ SQL,
 		$shortcuts = new MysqlShortcuts($dbal);
 		$this->setUpDatabase($shortcuts, 'uic_colliding');
 
-		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($dbal, $this->modernizeConfig());
+		$schema = new SchemaProvider($dbal);
+		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($schema, $this->modernizeConfig());
 
 		// Empty database: nothing to probe.
-		$empty = $auditor->analyse()->getViolations();
+		$empty = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertSame([], $empty);
 
 		$this->createCollidingPair($dbal);
 
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 
 		// Deterministic and repeatable.
-		self::assertEquals($violations, $auditor->analyse()->getViolations());
+		self::assertEquals($violations, AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		self::assertCount(1, $violations);
 		$violation = $violations[0];
@@ -127,7 +131,8 @@ SQL,
 		$shortcuts = new MysqlShortcuts($dbal);
 		$this->setUpDatabase($shortcuts, 'uic_non_colliding');
 
-		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($dbal, $this->modernizeConfig());
+		$schema = new SchemaProvider($dbal);
+		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($schema, $this->modernizeConfig());
 
 		// Same schema as the colliding case, but values that stay distinct under the target collation.
 		$dbal->exec(
@@ -144,7 +149,7 @@ SQL,
 			"INSERT INTO `t` (`code`) VALUES ('apple'), ('banana')",
 		);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -157,11 +162,12 @@ SQL,
 
 		// Default config = preserveOrder: utf8mb3_general_ci -> its utf8mb4_general_ci namesake is
 		// order-preserving and can never collide, so the colliding pair is never probed.
-		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($schema);
 
 		$this->createCollidingPair($dbal);
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -172,7 +178,8 @@ SQL,
 		$shortcuts = new MysqlShortcuts($dbal);
 		$this->setUpDatabase($shortcuts, 'uic_non_string');
 
-		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($dbal, $this->modernizeConfig());
+		$schema = new SchemaProvider($dbal);
+		$auditor = new UniqueIndexCollationCollisionMysqlAuditor($schema, $this->modernizeConfig());
 
 		// An integer unique index has no charset to convert, so it is never probed.
 		$dbal->exec(
@@ -186,7 +193,7 @@ SQL,
 		);
 		$dbal->exec('INSERT INTO `t` (`id`) VALUES (1), (2)');
 
-		self::assertSame([], $auditor->analyse()->getViolations());
+		self::assertSame([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }

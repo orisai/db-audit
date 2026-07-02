@@ -8,6 +8,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -35,7 +36,8 @@ final class EmptyColumnMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new EmptyColumnMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new EmptyColumnMysqlAuditor($schema);
 
 		$key = 'empty_column';
 
@@ -207,7 +209,8 @@ SQL,
 	public function testNonStringColumnIsEmptyOnlyWhenAllNull(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new EmptyColumnMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new EmptyColumnMysqlAuditor($schema);
 		$key = 'empty_column';
 
 		$db = 'empty_column_non_string';
@@ -259,7 +262,8 @@ SQL,
 	public function testBacktickInIdentifiers(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new EmptyColumnMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new EmptyColumnMysqlAuditor($schema);
 		$key = 'empty_column';
 
 		$db = 'empty_column_backtick';
@@ -299,7 +303,8 @@ SQL,
 	public function testViewsAreNotAudited(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new EmptyColumnMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new EmptyColumnMysqlAuditor($schema);
 		$key = 'empty_column';
 
 		$db = 'empty_column_view';

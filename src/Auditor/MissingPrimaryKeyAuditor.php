@@ -6,9 +6,9 @@ use Orisai\DbAudit\Analyser;
 use Orisai\DbAudit\AnalyserCategory;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Schema\SchemaProvider;
-use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\SchemaRequesting;
 
-abstract class MissingPrimaryKeyAuditor implements Analyser
+abstract class MissingPrimaryKeyAuditor implements Analyser, SchemaRequesting
 {
 
 	use MysqlFamilySupport;
@@ -17,29 +17,10 @@ abstract class MissingPrimaryKeyAuditor implements Analyser
 
 	protected SchemaProvider $schema;
 
-	private bool $ownsSchema;
-
-	public function __construct(DbalAdapter $dbal, ?SchemaProvider $schema = null)
+	public function __construct(SchemaProvider $schema)
 	{
-		$this->dbal = $dbal;
-		$this->ownsSchema = $schema === null;
-		$this->schema = $schema ?? new SchemaProvider($dbal);
-	}
-
-	abstract public function getSchemaRequest(): SchemaRequest;
-
-	/**
-	 * An owned provider caches one whole-database snapshot, but the auditor is re-run against a schema mutated
-	 * between calls, so it is rebuilt per run and left to its lazy whole-database fallback. An injected provider
-	 * is left untouched: a coordinator has already primed it for the shared set of auditors.
-	 */
-	protected function refreshOwnedSchema(): void
-	{
-		if (!$this->ownsSchema) {
-			return;
-		}
-
-		$this->schema = new SchemaProvider($this->dbal);
+		$this->schema = $schema;
+		$this->dbal = $schema->getDbal();
 	}
 
 	public function getCategory(): AnalyserCategory

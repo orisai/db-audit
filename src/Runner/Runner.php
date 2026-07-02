@@ -16,9 +16,13 @@ use Orisai\DbAudit\Driver\ServerInfoReader;
 use Orisai\DbAudit\Ignore\IgnoreList;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Report\Warning;
+use Orisai\DbAudit\Schema\ColumnCharsetClass;
 use Orisai\DbAudit\Schema\CurrentColumnDefinition;
 use Orisai\DbAudit\Schema\ForeignKeyGraph;
+use Orisai\DbAudit\Schema\SchemaCoordinator;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\SchemaRequesting;
 use function array_values;
 use function get_class;
 use function sprintf;
@@ -28,6 +32,8 @@ use function substr;
 
 final class Runner
 {
+
+	private SchemaProvider $schema;
 
 	private DbalAdapter $dbal;
 
@@ -52,7 +58,7 @@ final class Runner
 	 * @param list<Analyser> $analysers
 	 */
 	public function __construct(
-		DbalAdapter $dbal,
+		SchemaProvider $schema,
 		array $analysers,
 		?IgnoreList $structureIgnores = null,
 		?IgnoreList $dataIgnores = null,
@@ -60,17 +66,19 @@ final class Runner
 		?MigrationPlanner $planner = null
 	)
 	{
-		$this->dbal = $dbal;
+		$this->schema = $schema;
+		$this->dbal = $schema->getDbal();
 		$this->analysers = $analysers;
 		$this->structureIgnores = $structureIgnores ?? new IgnoreList();
 		$this->dataIgnores = $dataIgnores ?? new IgnoreList();
-		$this->strategy = $strategy ?? new BasicMigrationStrategy($dbal);
+		$this->strategy = $strategy ?? new BasicMigrationStrategy($this->dbal);
 		$this->planner = $planner ?? new MigrationPlanner();
 	}
 
 	public function analyse(?AnalyserCategory $only = null): AnalysisReport
 	{
 		$server = $this->getServerInfo();
+		$this->primeSchema($this->analysersToRun($only, $server));
 
 		$errors = [];
 		$ignoredCount = 0;
@@ -112,6 +120,7 @@ final class Runner
 	public function generate(?AnalyserCategory $only = null): GenerationReport
 	{
 		$server = $this->getServerInfo();
+		$this->primeSchema($this->analysersToRun($only, $server));
 
 		$sql = '';
 		$generatedCount = 0;
@@ -194,6 +203,7 @@ final class Runner
 	public function collectErrors(?AnalyserCategory $only = null): array
 	{
 		$server = $this->getServerInfo();
+		$this->primeSchema($this->analysersToRun($only, $server));
 
 		$violations = [];
 		foreach ($this->categoriesToRun($only) as $category) {
@@ -217,6 +227,42 @@ final class Runner
 	private function categoriesToRun(?AnalyserCategory $only): array
 	{
 		return $only !== null ? [$only] : AnalyserCategory::cases();
+	}
+
+	/**
+	 * @return list<Analyser>
+	 */
+	private function analysersToRun(?AnalyserCategory $only, ServerInfo $server): array
+	{
+		$toRun = [];
+		foreach ($this->categoriesToRun($only) as $category) {
+			foreach ($this->analysers as $analyser) {
+				if ($analyser->getCategory() === $category && $this->supports($analyser, $server)) {
+					$toRun[] = $analyser;
+				}
+			}
+		}
+
+		return $toRun;
+	}
+
+	/**
+	 * Re-primes the shared provider with the union of the to-run auditors' schema requirements, so each run
+	 * reads a fresh snapshot (a migration applied between runs is reflected) and the heavy information_schema
+	 * tables are read once for the whole set.
+	 *
+	 * @param list<Analyser> $toRun
+	 */
+	private function primeSchema(array $toRun): void
+	{
+		$requests = [];
+		foreach ($toRun as $analyser) {
+			if ($analyser instanceof SchemaRequesting) {
+				$requests[] = $analyser->getSchemaRequest();
+			}
+		}
+
+		(new SchemaCoordinator($this->schema))->prime($requests);
 	}
 
 	private function ignoresFor(AnalyserCategory $category): IgnoreList
@@ -252,7 +298,7 @@ final class Runner
 
 	private function getForeignKeyGraph(): ForeignKeyGraph
 	{
-		return $this->foreignKeyGraph ??= (new SchemaProvider($this->dbal))->getForeignKeyGraph();
+		return $this->foreignKeyGraph ??= $this->schema->getForeignKeyGraph();
 	}
 
 	private function getSchemaContext(): SchemaContext
@@ -261,7 +307,15 @@ final class Runner
 			return $this->schemaContext;
 		}
 
-		$provider = new SchemaProvider($this->dbal);
+		// Change rendering needs the full definition of every changed table, including tables flagged by
+		// data-only auditors that prime no columns of their own; the shared provider is re-primed here with an
+		// unscoped request (the provider's global exclude still applies) so the context is complete.
+		$request = new SchemaRequest(ColumnCharsetClass::any(), null, false, true, true);
+		$this->schema->primeTablesAndForeignKeys([$request]);
+		$this->schema->primeColumns([$request]);
+		$this->schema->primeStatistics([$request]);
+
+		$provider = $this->schema;
 		$columnsByTable = $provider->getColumnsByTable();
 		$statisticsByTable = $provider->getStatisticsByTable();
 

@@ -9,7 +9,9 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -36,14 +38,15 @@ final class ForeignKeyColumnNameMismatchMysqlAuditorTest extends TestCase
 	public function testEmptyDatabase(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_name_mismatch__empty';
 		$shortcuts->dropDatabaseIfExists($db);
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -52,7 +55,8 @@ final class ForeignKeyColumnNameMismatchMysqlAuditorTest extends TestCase
 	public function testDefaultPattern(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($schema);
 
 		$db = 'foreign_key_column_name_mismatch__default';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -108,7 +112,7 @@ CREATE TABLE `t` (
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
 				'foreign_key.unexpected_name',
@@ -123,7 +127,7 @@ SQL,
 		], $report);
 
 		// Determinism: re-running yields the same result.
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -133,7 +137,8 @@ SQL,
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
 		$config = (new ForeignKeyColumnNameMismatchConfig())->setPattern('/^fk_/');
-		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($dbal, $config);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($schema, $config);
 		$key = 'foreign_key.missing_constraint';
 
 		$db = 'foreign_key_column_name_mismatch__custom';
@@ -159,7 +164,7 @@ SQL,
 				'Column [c][fk_parent] matches the foreign-key naming pattern but has no foreign key.',
 				new ColumnViolationSource($db, null, 'c', 'fk_parent'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -168,7 +173,8 @@ SQL,
 	public function testReanalyseReflectsChange(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyColumnNameMismatchMysqlAuditor($schema);
 		$key = 'foreign_key.missing_constraint';
 
 		$db = 'foreign_key_column_name_mismatch__reanalyse';
@@ -193,7 +199,7 @@ SQL,
 				'Column [first][parent_id] matches the foreign-key naming pattern but has no foreign key.',
 				new ColumnViolationSource($db, null, 'first', 'parent_id'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -217,7 +223,7 @@ SQL,
 				'Column [second][owner_id] matches the foreign-key naming pattern but has no foreign key.',
 				new ColumnViolationSource($db, null, 'second', 'owner_id'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }

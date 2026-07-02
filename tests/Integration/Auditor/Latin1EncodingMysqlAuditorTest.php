@@ -7,7 +7,9 @@ use Orisai\DbAudit\Auditor\Latin1EncodingMysqlAuditor;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 use function array_map;
@@ -36,7 +38,8 @@ final class Latin1EncodingMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new Latin1EncodingMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new Latin1EncodingMysqlAuditor($schema);
 
 		$db = 'latin1_encoding';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -44,7 +47,7 @@ final class Latin1EncodingMysqlAuditorTest extends TestCase
 		$shortcuts->useDatabase($db);
 
 		// Empty database: nothing to scan.
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// One table whose latin1 columns each isolate a verdict, plus utf8mb4/utf8mb3 columns that must be
 		// skipped because their charset is multibyte (CHARACTER_SETS.MAXLEN > 1).
@@ -74,10 +77,10 @@ INSERT INTO `data` (`genuine`, `double_encoded`, `mixed`, `ascii_only`, `u4`, `u
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 
 		// Deterministic and repeatable, like the other data auditors.
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// One violation per non-ASCII latin1 column (genuine, double_encoded, mixed) — ordered by column
 		// name within the single table. ascii_only has no non-ASCII data, u4/u3 are multibyte (not scanned).
@@ -133,8 +136,8 @@ INSERT INTO `other` (`latin2_col`, `utf8_col`) VALUES (UNHEX('E9'), UNHEX('C3A9'
 SQL,
 		);
 
-		$report2 = $auditor->analyse()->getViolations();
-		self::assertEquals($report2, $auditor->analyse()->getViolations());
+		$report2 = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		self::assertEquals($report2, AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$other = [];
 		foreach ($report2 as $violation) {
@@ -150,7 +153,7 @@ SQL,
 
 		// The session sql_mode the auditor temporarily clears is restored to its prior value afterwards.
 		$before = (string) $dbal->query('SELECT @@SESSION.sql_mode AS sql_mode')[0]['sql_mode'];
-		$auditor->analyse();
+		AuditorRunner::analyse($schema, $auditor);
 		$after = (string) $dbal->query('SELECT @@SESSION.sql_mode AS sql_mode')[0]['sql_mode'];
 		self::assertSame($before, $after);
 	}

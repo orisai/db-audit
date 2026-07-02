@@ -5,6 +5,7 @@ namespace Orisai\DbAudit\Auditor;
 use Orisai\DbAudit\Analyser;
 use Orisai\DbAudit\AnalyserCategory;
 use Orisai\DbAudit\Dbal\DbalAdapter;
+use Orisai\DbAudit\Schema\SchemaProvider;
 
 abstract class EmptyColumnAuditor implements Analyser
 {
@@ -13,9 +14,9 @@ abstract class EmptyColumnAuditor implements Analyser
 
 	protected DbalAdapter $dbal;
 
-	public function __construct(DbalAdapter $dbal)
+	public function __construct(SchemaProvider $schema)
 	{
-		$this->dbal = $dbal;
+		$this->dbal = $schema->getDbal();
 	}
 
 	public function getCategory(): AnalyserCategory

@@ -33,8 +33,6 @@ final class ForeignKeyViolationMysqlAuditor extends ForeignKeyViolationAuditor
 
 	public function analyse(): AnalysisResult
 	{
-		$this->refreshOwnedSchema();
-
 		$existingTables = [];
 		foreach ($this->schema->getTableNames() as $name) {
 			$existingTables[$name] = true;

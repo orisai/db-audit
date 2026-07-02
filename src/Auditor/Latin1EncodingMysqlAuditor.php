@@ -33,7 +33,6 @@ final class Latin1EncodingMysqlAuditor extends Latin1EncodingAuditor
 
 	public function analyse(): AnalysisResult
 	{
-		$this->primeOwnedSchema();
 		$columns = $this->getColumns();
 
 		$this->dbal->exec('SET @ORISAI_DBAUDIT_SQL_MODE = @@SESSION.sql_mode');

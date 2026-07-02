@@ -6,9 +6,9 @@ use Orisai\DbAudit\Analyser;
 use Orisai\DbAudit\AnalyserCategory;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Schema\SchemaProvider;
-use Orisai\DbAudit\Schema\SchemaRequest;
+use Orisai\DbAudit\Schema\SchemaRequesting;
 
-abstract class ForeignKeyColumnNameMismatchAuditor implements Analyser
+abstract class ForeignKeyColumnNameMismatchAuditor implements Analyser, SchemaRequesting
 {
 
 	use MysqlFamilySupport;
@@ -19,34 +19,11 @@ abstract class ForeignKeyColumnNameMismatchAuditor implements Analyser
 
 	protected SchemaProvider $schema;
 
-	private bool $ownsSchema;
-
-	public function __construct(
-		DbalAdapter $dbal,
-		?ForeignKeyColumnNameMismatchConfig $config = null,
-		?SchemaProvider $schema = null
-	)
+	public function __construct(SchemaProvider $schema, ?ForeignKeyColumnNameMismatchConfig $config = null)
 	{
-		$this->dbal = $dbal;
+		$this->schema = $schema;
+		$this->dbal = $schema->getDbal();
 		$this->config = $config ?? new ForeignKeyColumnNameMismatchConfig();
-		$this->ownsSchema = $schema === null;
-		$this->schema = $schema ?? new SchemaProvider($dbal);
-	}
-
-	abstract public function getSchemaRequest(): SchemaRequest;
-
-	/**
-	 * An owned provider caches one whole-database snapshot, but the auditor is re-run against a schema mutated
-	 * between calls, so it is rebuilt per run and left to its lazy whole-database fallback. An injected provider
-	 * is left untouched: a coordinator has already primed it for the shared set of auditors.
-	 */
-	protected function refreshOwnedSchema(): void
-	{
-		if (!$this->ownsSchema) {
-			return;
-		}
-
-		$this->schema = new SchemaProvider($this->dbal);
 	}
 
 	public function getCategory(): AnalyserCategory

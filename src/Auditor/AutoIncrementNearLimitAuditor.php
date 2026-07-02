@@ -5,6 +5,7 @@ namespace Orisai\DbAudit\Auditor;
 use Orisai\DbAudit\Analyser;
 use Orisai\DbAudit\AnalyserCategory;
 use Orisai\DbAudit\Dbal\DbalAdapter;
+use Orisai\DbAudit\Schema\SchemaProvider;
 
 abstract class AutoIncrementNearLimitAuditor implements Analyser
 {
@@ -16,9 +17,9 @@ abstract class AutoIncrementNearLimitAuditor implements Analyser
 	/** @var int<1, 99> */
 	protected int $percentileThreshold = 90;
 
-	public function __construct(DbalAdapter $dbal)
+	public function __construct(SchemaProvider $schema)
 	{
-		$this->dbal = $dbal;
+		$this->dbal = $schema->getDbal();
 	}
 
 	/**

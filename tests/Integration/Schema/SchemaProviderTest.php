@@ -360,8 +360,8 @@ SQL,
 		$counting = new CountingDbalAdapter($dbal);
 
 		$shared = new SchemaProvider($counting);
-		$collation = new OutdatedCollationMysqlAuditor($counting, null, $shared);
-		$latin1 = new Latin1EncodingMysqlAuditor($counting, $shared);
+		$collation = new OutdatedCollationMysqlAuditor($shared, null);
+		$latin1 = new Latin1EncodingMysqlAuditor($shared);
 
 		$collation->analyse();
 		$latin1->analyse();

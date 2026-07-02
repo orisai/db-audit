@@ -24,6 +24,7 @@ use Orisai\DbAudit\Auditor\RedundantIndexMysqlAuditor;
 use Orisai\DbAudit\Auditor\UniqueIndexCollationCollisionMysqlAuditor;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use function get_class;
@@ -70,25 +71,27 @@ final class AuditorSupportedDatabasesTest extends TestCase
 	 */
 	private static function auditors(DbalAdapter $dbal): array
 	{
+		$schema = new SchemaProvider($dbal);
+
 		return [
-			new AutoIncrementNearLimitMysqlAuditor($dbal),
-			new BoolLikeColumnMysqlAuditor($dbal),
-			new EmptyColumnMysqlAuditor($dbal),
-			new EmptyTableMysqlAuditor($dbal),
-			new ForeignKeyColumnNameMismatchMysqlAuditor($dbal),
-			new ForeignKeyColumnTypeMismatchMysqlAuditor($dbal),
-			new ForeignKeyReferencedColumnExistenceMysqlAuditor($dbal),
-			new ForeignKeyViolationMysqlAuditor($dbal),
-			new InvalidDateMysqlAuditor($dbal),
-			new InvalidDefaultDateMysqlAuditor($dbal),
-			new Latin1EncodingMysqlAuditor($dbal),
-			new MissingPrimaryKeyMysqlAuditor($dbal),
-			new MixedEmptyValuesMysqlAuditor($dbal),
-			new NonTransactionalEngineMysqlAuditor($dbal),
-			new NullableWithNoNullsMysqlAuditor($dbal),
-			new OutdatedCollationMysqlAuditor($dbal),
-			new RedundantIndexMysqlAuditor($dbal),
-			new UniqueIndexCollationCollisionMysqlAuditor($dbal),
+			new AutoIncrementNearLimitMysqlAuditor($schema),
+			new BoolLikeColumnMysqlAuditor($schema),
+			new EmptyColumnMysqlAuditor($schema),
+			new EmptyTableMysqlAuditor($schema),
+			new ForeignKeyColumnNameMismatchMysqlAuditor($schema),
+			new ForeignKeyColumnTypeMismatchMysqlAuditor($schema),
+			new ForeignKeyReferencedColumnExistenceMysqlAuditor($schema),
+			new ForeignKeyViolationMysqlAuditor($schema),
+			new InvalidDateMysqlAuditor($schema),
+			new InvalidDefaultDateMysqlAuditor($schema),
+			new Latin1EncodingMysqlAuditor($schema),
+			new MissingPrimaryKeyMysqlAuditor($schema),
+			new MixedEmptyValuesMysqlAuditor($schema),
+			new NonTransactionalEngineMysqlAuditor($schema),
+			new NullableWithNoNullsMysqlAuditor($schema),
+			new OutdatedCollationMysqlAuditor($schema),
+			new RedundantIndexMysqlAuditor($schema),
+			new UniqueIndexCollationCollisionMysqlAuditor($schema),
 		];
 	}
 

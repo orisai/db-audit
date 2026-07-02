@@ -8,6 +8,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -35,7 +36,8 @@ final class InvalidDateMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new InvalidDateMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new InvalidDateMysqlAuditor($schema);
 
 		$db = 'invalid_date';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -87,7 +89,8 @@ SQL,
 	public function testReservedWordAndHyphenatedTableNames(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new InvalidDateMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new InvalidDateMysqlAuditor($schema);
 		$key = 'invalid_date';
 
 		$db = 'invalid_date_reserved';

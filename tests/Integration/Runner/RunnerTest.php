@@ -20,6 +20,7 @@ use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -50,9 +51,10 @@ final class RunnerTest extends TestCase
 	public function testAnalyseByCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$this->prepareOneEmptyTableWithoutPrimaryKey($dbal, 'runner_analyse');
-		$runner = new Runner($dbal, [
-			new MissingPrimaryKeyMysqlAuditor($dbal),
-			new EmptyTableMysqlAuditor($dbal),
+		$schema = new SchemaProvider($dbal);
+		$runner = new Runner($schema, [
+			new MissingPrimaryKeyMysqlAuditor($schema),
+			new EmptyTableMysqlAuditor($schema),
 		]);
 
 		self::assertSame(
@@ -80,7 +82,8 @@ final class RunnerTest extends TestCase
 			new IgnoredError(null, null, null, null, 'missing_primary_key'),
 			new IgnoredError(null, null, null, null, 'non_transactional_engine'), // never occurs -> stale
 		]);
-		$runner = new Runner($dbal, [new MissingPrimaryKeyMysqlAuditor($dbal)], $structureIgnores);
+		$schema = new SchemaProvider($dbal);
+		$runner = new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)], $structureIgnores);
 
 		$report = $runner->analyse(AnalyserCategory::structure());
 
@@ -96,7 +99,8 @@ final class RunnerTest extends TestCase
 	 */
 	public function testUnsupportedAnalyserIsWarned(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$runner = new Runner($dbal, [$this->unsupportedAnalyser()]);
+		$schema = new SchemaProvider($dbal);
+		$runner = new Runner($schema, [$this->unsupportedAnalyser()]);
 
 		$report = $runner->analyse();
 
@@ -111,7 +115,8 @@ final class RunnerTest extends TestCase
 	 */
 	public function testGenerate(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$runner = new Runner($dbal, [$this->fixedGenerator()]);
+		$schema = new SchemaProvider($dbal);
+		$runner = new Runner($schema, [$this->fixedGenerator()]);
 
 		$report = $runner->generate();
 
@@ -135,7 +140,8 @@ final class RunnerTest extends TestCase
 		$shortcuts->useDatabase('runner_generate');
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `legacy` (`a` int NOT NULL) ENGINE=MyISAM');
 
-		$report = (new Runner($dbal, [new NonTransactionalEngineMysqlAuditor($dbal)]))->generate();
+		$schema = new SchemaProvider($dbal);
+		$report = (new Runner($schema, [new NonTransactionalEngineMysqlAuditor($schema)]))->generate();
 
 		self::assertStringContainsString('ALTER TABLE `legacy` ENGINE=InnoDB;', $report->getSql());
 		self::assertSame(1, $report->getGeneratedCount());
@@ -154,9 +160,10 @@ final class RunnerTest extends TestCase
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `t` (`a` int NULL) ENGINE=MyISAM');
 		$dbal->exec(/** @lang MySQL */ 'INSERT INTO `t` (`a`) VALUES (1), (2)');
 
-		$report = (new Runner($dbal, [
-			new NonTransactionalEngineMysqlAuditor($dbal), // structure
-			new NullableWithNoNullsMysqlAuditor($dbal), // data
+		$schema = new SchemaProvider($dbal);
+		$report = (new Runner($schema, [
+			new NonTransactionalEngineMysqlAuditor($schema), // structure
+			new NullableWithNoNullsMysqlAuditor($schema), // data
 		]))->generate();
 
 		// Engine (structure) and NOT NULL (data) changes for `t` merge into a single ALTER.
@@ -193,7 +200,8 @@ final class RunnerTest extends TestCase
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `legacy` (`a` int NOT NULL) ENGINE=MyISAM');
 
 		$ignores = new IgnoreList([new IgnoredError(null, null, null, null, 'non_transactional_engine')]);
-		$report = (new Runner($dbal, [new NonTransactionalEngineMysqlAuditor($dbal)], $ignores))->generate();
+		$schema = new SchemaProvider($dbal);
+		$report = (new Runner($schema, [new NonTransactionalEngineMysqlAuditor($schema)], $ignores))->generate();
 
 		self::assertSame('', $report->getSql());
 		self::assertSame(0, $report->getGeneratedCount());

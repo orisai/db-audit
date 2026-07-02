@@ -8,6 +8,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -35,7 +36,8 @@ final class AutoIncrementNearLimitMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new AutoIncrementNearLimitMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new AutoIncrementNearLimitMysqlAuditor($schema);
 
 		$key = 'auto_increment_near_limit';
 
@@ -396,7 +398,8 @@ SQL,
 	public function testUnrecognizedTypeAndBigUnsigned(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new AutoIncrementNearLimitMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new AutoIncrementNearLimitMysqlAuditor($schema);
 		$key = 'auto_increment_near_limit';
 
 		$db = 'auto_increment_unrecognized';

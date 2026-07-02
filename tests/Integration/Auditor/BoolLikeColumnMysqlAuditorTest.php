@@ -8,6 +8,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -35,7 +36,8 @@ final class BoolLikeColumnMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new BoolLikeColumnMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new BoolLikeColumnMysqlAuditor($schema);
 
 		$key = 'bool_like_column';
 
@@ -225,7 +227,8 @@ SQL,
 	public function testValidCheckAndAllNullAreNotFlagged(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new BoolLikeColumnMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new BoolLikeColumnMysqlAuditor($schema);
 
 		$db = 'bool_like_column_check';
 		$shortcuts->dropDatabaseIfExists($db);
@@ -262,7 +265,8 @@ SQL,
 	public function testSurvivesLeftoverProcedure(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new BoolLikeColumnMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new BoolLikeColumnMysqlAuditor($schema);
 		$key = 'bool_like_column';
 
 		$db = 'bool_like_column_leftover';

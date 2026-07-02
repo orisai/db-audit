@@ -65,8 +65,8 @@ SQL,
 		// The two auditors declare overlapping needs (collation wants every column of its in-scope tables,
 		// encoding wants single-byte columns) over the same database; the coordinator unions them into one
 		// fetch whose predicate is `1 = 1 OR (CHARACTER_SET_NAME IN <single-byte>)`.
-		$collation = new OutdatedCollationMysqlAuditor($counting, null, $provider);
-		$encoding = new Latin1EncodingMysqlAuditor($counting, $provider);
+		$collation = new OutdatedCollationMysqlAuditor($provider, null);
+		$encoding = new Latin1EncodingMysqlAuditor($provider);
 
 		$coordinator = new SchemaCoordinator($provider);
 		$coordinator->prime([$collation->getSchemaRequest(), $encoding->getSchemaRequest()]);
@@ -102,8 +102,8 @@ SQL,
 		$counting = new CountingDbalAdapter($dbal);
 		$provider = new SchemaProvider($counting);
 
-		$collation = new OutdatedCollationMysqlAuditor($counting, null, $provider);
-		$encoding = new Latin1EncodingMysqlAuditor($counting, $provider);
+		$collation = new OutdatedCollationMysqlAuditor($provider, null);
+		$encoding = new Latin1EncodingMysqlAuditor($provider);
 
 		$coordinator = new SchemaCoordinator($provider);
 		$coordinator->prime([$collation->getSchemaRequest(), $encoding->getSchemaRequest()]);

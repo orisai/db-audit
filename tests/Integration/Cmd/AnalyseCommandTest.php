@@ -9,6 +9,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Ignore\Baseline;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -41,7 +42,10 @@ final class AnalyseCommandTest extends TestCase
 	public function testReportsErrorsAndFails(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$this->prepare($dbal, 'analyse_cmd');
-		$tester = new CommandTester(new AnalyseCommand(new Runner($dbal, [new MissingPrimaryKeyMysqlAuditor($dbal)])));
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
 
 		$tester->execute([]);
 
@@ -59,7 +63,10 @@ final class AnalyseCommandTest extends TestCase
 	{
 		$this->prepare($dbal, 'analyse_cmd_baseline');
 		$path = $this->tempPath();
-		$tester = new CommandTester(new AnalyseCommand(new Runner($dbal, [new MissingPrimaryKeyMysqlAuditor($dbal)])));
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
 
 		$tester->execute(['--category' => 'structure', '--generate-baseline' => $path]);
 
@@ -75,7 +82,10 @@ final class AnalyseCommandTest extends TestCase
 	 */
 	public function testGenerateBaselineRequiresCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$tester = new CommandTester(new AnalyseCommand(new Runner($dbal, [new MissingPrimaryKeyMysqlAuditor($dbal)])));
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
 
 		$tester->execute(['--generate-baseline' => $this->tempPath()]);
 
@@ -88,7 +98,10 @@ final class AnalyseCommandTest extends TestCase
 	 */
 	public function testInvalidCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$tester = new CommandTester(new AnalyseCommand(new Runner($dbal, [new MissingPrimaryKeyMysqlAuditor($dbal)])));
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
 
 		$tester->execute(['--category' => 'nope']);
 

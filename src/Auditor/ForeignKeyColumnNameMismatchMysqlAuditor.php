@@ -34,8 +34,6 @@ final class ForeignKeyColumnNameMismatchMysqlAuditor extends ForeignKeyColumnNam
 
 	public function analyse(): AnalysisResult
 	{
-		$this->refreshOwnedSchema();
-
 		$db = $this->schema->getDatabaseDefault()['name'];
 		$pattern = $this->config->getPattern();
 

@@ -9,6 +9,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Runner\Runner;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -36,7 +37,8 @@ final class NullableWithNoNullsAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new NullableWithNoNullsMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new NullableWithNoNullsMysqlAuditor($schema);
 
 		$key = 'nullable_with_no_nulls';
 
@@ -162,7 +164,8 @@ SQL,
 		);
 		$dbal->exec(/** @lang MySQL */ "INSERT INTO `t` (`a`, `b`, `with_default`) VALUES (1, 'x', 1), (2, 'y', 2)");
 
-		$report = (new Runner($dbal, [new NullableWithNoNullsMysqlAuditor($dbal)]))->generate();
+		$schema = new SchemaProvider($dbal);
+		$report = (new Runner($schema, [new NullableWithNoNullsMysqlAuditor($schema)]))->generate();
 
 		// `a` and `b` are simple -> fixed; `with_default` has a default -> skipped (not generated).
 		self::assertSame(2, $report->getGeneratedCount());
@@ -206,7 +209,8 @@ SQL,
 		);
 		$dbal->exec(/** @lang MySQL */ "INSERT INTO `t` (`a`, `note`) VALUES (1, 'x'), (2, 'y')");
 
-		$sql = (new Runner($dbal, [new NullableWithNoNullsMysqlAuditor($dbal)]))->generate()->getSql();
+		$schema = new SchemaProvider($dbal);
+		$sql = (new Runner($schema, [new NullableWithNoNullsMysqlAuditor($schema)]))->generate()->getSql();
 
 		// The tightening MODIFY carries the column's existing comment: the sparse setNullable(false) delta merges
 		// onto the current definition, which still holds the comment. Before deltas the auditor restated a full
@@ -237,7 +241,8 @@ SQL,
 	public function testEmptyTableYieldsNoViolations(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new NullableWithNoNullsMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new NullableWithNoNullsMysqlAuditor($schema);
 
 		$db = 'nullable_with_no_nulls_empty';
 		$shortcuts->dropDatabaseIfExists($db);

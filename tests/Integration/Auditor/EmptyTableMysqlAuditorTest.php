@@ -8,6 +8,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -35,7 +36,8 @@ final class EmptyTableMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new EmptyTableMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new EmptyTableMysqlAuditor($schema);
 
 		$key = 'empty_table';
 
@@ -101,7 +103,8 @@ SQL,
 	public function testExactEmptinessIgnoresStaleRowEstimate(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new EmptyTableMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new EmptyTableMysqlAuditor($schema);
 		$key = 'empty_table';
 
 		$db = 'empty_table_estimate';

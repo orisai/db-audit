@@ -8,6 +8,7 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
@@ -36,7 +37,8 @@ final class InvalidDefaultDateMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new InvalidDefaultDateMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new InvalidDefaultDateMysqlAuditor($schema);
 
 		$key = 'invalid_default_date';
 
@@ -200,7 +202,8 @@ SQL,
 	public function testZeroYearPatternDoesNotOverMatch(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new InvalidDefaultDateMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new InvalidDefaultDateMysqlAuditor($schema);
 		$key = 'invalid_default_date';
 
 		$db = 'invalid_default_date_year';

@@ -36,8 +36,6 @@ final class ForeignKeyColumnTypeMismatchMysqlAuditor extends ForeignKeyColumnTyp
 
 	public function analyse(): AnalysisResult
 	{
-		$this->refreshOwnedSchema();
-
 		$db = $this->schema->getDatabaseDefault()['name'];
 		$columnsByTable = $this->schema->getColumnsByTable();
 		$charsetMaxlen = $this->getCharsetMaxlenMap();

@@ -8,7 +8,9 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 use Throwable;
@@ -36,7 +38,8 @@ final class ForeignKeyViolationMysqlAuditorTest extends TestCase
 	public function testMismatch(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyViolationMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyViolationMysqlAuditor($schema);
 
 		$key = 'foreign_key.violation';
 
@@ -45,7 +48,7 @@ final class ForeignKeyViolationMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -138,7 +141,7 @@ VALUES (1, 99), (99, 2);
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -173,7 +176,7 @@ SQL,
 				'Delete or fix the orphan rows before relying on the constraint.',
 			),
 		], $report);
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -186,7 +189,8 @@ SQL,
 	public function testCompositeForeignKeyViolation(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyViolationMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyViolationMysqlAuditor($schema);
 
 		$key = 'foreign_key.violation';
 
@@ -250,7 +254,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -261,7 +265,7 @@ SQL,
 				'Delete or fix the orphan rows before relying on the constraint.',
 			),
 		], $report);
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -272,14 +276,15 @@ SQL,
 	public function testNonExistentTable(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new ForeignKeyViolationMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new ForeignKeyViolationMysqlAuditor($schema);
 
 		$db = 'foreign_key_violation__non_existent_table';
 		$shortcuts->dropDatabaseIfExists($db);
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -307,9 +312,9 @@ SET FOREIGN_KEY_CHECKS = 1;
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
-		self::assertEquals([], $auditor->analyse()->getViolations());
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**

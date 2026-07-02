@@ -199,7 +199,6 @@ final class OutdatedCollationMysqlAuditor extends OutdatedCollationAuditor
 
 	private function buildPlan(): MigrationPlan
 	{
-		$this->primeOwnedSchema();
 		$this->migratedCharsets = [];
 		$this->migratedCollations = [];
 

@@ -8,7 +8,9 @@ use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use Orisai\DbAudit\Schema\SchemaProvider;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -35,7 +37,8 @@ final class MissingPrimaryKeyMysqlAuditorTest extends TestCase
 	public function test(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new MissingPrimaryKeyMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new MissingPrimaryKeyMysqlAuditor($schema);
 		$key = 'missing_primary_key';
 
 		$db = 'missing_primary_key';
@@ -43,7 +46,7 @@ final class MissingPrimaryKeyMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `no_pk` (`a` int NOT NULL)');
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `with_pk` (`id` int NOT NULL, PRIMARY KEY (`id`))');
@@ -64,7 +67,7 @@ final class MissingPrimaryKeyMysqlAuditorTest extends TestCase
 				false,
 				'Add a PRIMARY KEY (or a stable surrogate key).',
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -73,7 +76,8 @@ final class MissingPrimaryKeyMysqlAuditorTest extends TestCase
 	public function testReanalyseReflectsChange(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
-		$auditor = new MissingPrimaryKeyMysqlAuditor($dbal);
+		$schema = new SchemaProvider($dbal);
+		$auditor = new MissingPrimaryKeyMysqlAuditor($schema);
 		$key = 'missing_primary_key';
 
 		$db = 'missing_primary_key_reanalyse';
@@ -91,7 +95,7 @@ final class MissingPrimaryKeyMysqlAuditorTest extends TestCase
 				false,
 				'Add a PRIMARY KEY (or a stable surrogate key).',
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `second_no_pk` (`a` int NOT NULL)');
 
@@ -110,7 +114,7 @@ final class MissingPrimaryKeyMysqlAuditorTest extends TestCase
 				false,
 				'Add a PRIMARY KEY (or a stable surrogate key).',
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }
