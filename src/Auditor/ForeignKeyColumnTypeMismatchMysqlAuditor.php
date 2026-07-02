@@ -17,7 +17,7 @@ use function usort;
 final class ForeignKeyColumnTypeMismatchMysqlAuditor extends ForeignKeyColumnTypeMismatchAuditor
 {
 
-	private const FixHint = 'Run db-audit:generate to produce the migration SQL.';
+	private const FixHint = 'Run db-audit:analyse --category=structure --generate-fix=<file> to produce the migration SQL.';
 
 	/**
 	 * Every foreign key in the whole database is compared, so all columns (any charset) and the foreign-key
