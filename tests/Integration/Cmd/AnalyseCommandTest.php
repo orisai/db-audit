@@ -15,6 +15,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandTester;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
+use function file_get_contents;
 use function sys_get_temp_dir;
 use function tempnam;
 use function unlink;
@@ -46,7 +47,7 @@ final class AnalyseCommandTest extends TestCase
 			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
 		);
 
-		$tester->execute([]);
+		$tester->execute([], ['decorated' => false]);
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
 		self::assertStringContainsString('Choose --category', $tester->getDisplay());
@@ -62,7 +63,7 @@ final class AnalyseCommandTest extends TestCase
 			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
 		);
 
-		$tester->execute(['--category' => 'bogus']);
+		$tester->execute(['--category' => 'bogus'], ['decorated' => false]);
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
 		self::assertStringContainsString('Invalid --category', $tester->getDisplay());
@@ -79,7 +80,7 @@ final class AnalyseCommandTest extends TestCase
 			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
 		);
 
-		$tester->execute(['--category' => 'structure']);
+		$tester->execute(['--category' => 'structure'], ['decorated' => false]);
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
 		$display = $tester->getDisplay();
@@ -102,47 +103,114 @@ final class AnalyseCommandTest extends TestCase
 			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
 		);
 
-		$tester->execute(['--category' => 'structure']);
+		$tester->execute(['--category' => 'structure'], ['decorated' => false]);
 
 		self::assertSame(Command::SUCCESS, $tester->getStatusCode());
 		self::assertStringContainsString('No errors', $tester->getDisplay());
 	}
 
 	/**
+	 * `-b --category=structure` writes only the structure baseline; the data baseline file is left untouched.
+	 * Re-running `--category=structure` (no `-b`) then subtracts those errors and the run succeeds.
+	 *
 	 * @dataProvider provide
 	 */
-	public function testGeneratesBaseline(DbalAdapter $dbal, DatabaseEngine $engine): void
+	public function testGeneratesStructureBaselineAndThenSubtractsIt(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$this->prepare($dbal, 'analyse_cmd_baseline', true);
-		$path = $this->tempPath();
 		$schema = new SchemaProvider($dbal);
-		$tester = new CommandTester(
-			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		$structurePath = $this->tempPath();
+		$dataPath = $this->tempPath();
+
+		$writeTester = new CommandTester(
+			new AnalyseCommand(
+				new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)]),
+				$structurePath,
+				$dataPath,
+			),
+		);
+		$writeTester->execute(
+			['--category' => 'structure', '--generate-baseline' => true],
+			['decorated' => false],
 		);
 
-		$tester->execute(['--category' => 'structure', '--generate-baseline' => $path]);
+		self::assertSame(Command::SUCCESS, $writeTester->getStatusCode());
+		self::assertStringContainsString('Baseline written for structure: 1 entry', $writeTester->getDisplay());
+		self::assertCount(1, Baseline::load($structurePath)->getErrors());
+		self::assertSame('', (string) file_get_contents($dataPath));
+
+		$subtractTester = new CommandTester(
+			new AnalyseCommand(
+				new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)]),
+				$structurePath,
+				$dataPath,
+			),
+		);
+		$subtractTester->execute(['--category' => 'structure'], ['decorated' => false]);
+
+		self::assertSame(Command::SUCCESS, $subtractTester->getStatusCode());
+		$display = $subtractTester->getDisplay();
+		self::assertStringContainsString('No errors', $display);
+		self::assertStringContainsString('Baselined: 1', $display);
+
+		unlink($structurePath);
+		unlink($dataPath);
+	}
+
+	/**
+	 * `-b --category=all` writes both baseline files, each containing only that category's own errors — never
+	 * cross-contaminated.
+	 *
+	 * @dataProvider provide
+	 */
+	public function testGeneratesBaselineForAllCategoriesSeparately(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$this->prepare($dbal, 'analyse_cmd_baseline_all', true);
+		$schema = new SchemaProvider($dbal);
+		$structurePath = $this->tempPath();
+		$dataPath = $this->tempPath();
+
+		$tester = new CommandTester(
+			new AnalyseCommand(
+				new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)]),
+				$structurePath,
+				$dataPath,
+			),
+		);
+		$tester->execute(['--category' => 'all', '--generate-baseline' => true], ['decorated' => false]);
 
 		self::assertSame(Command::SUCCESS, $tester->getStatusCode());
-		self::assertStringContainsString('Baseline written: 1 entry', $tester->getDisplay());
-		self::assertCount(1, Baseline::load($path)->getErrors());
+		$display = $tester->getDisplay();
+		self::assertStringContainsString('Baseline written for structure: 1 entry', $display);
+		self::assertStringContainsString('Baseline written for data: 0 entries', $display);
 
-		unlink($path);
+		$structureErrors = Baseline::load($structurePath)->getErrors();
+		self::assertCount(1, $structureErrors);
+		self::assertSame('missing_primary_key', $structureErrors[0]->getKey());
+
+		self::assertCount(0, Baseline::load($dataPath)->getErrors());
+
+		unlink($structurePath);
+		unlink($dataPath);
 	}
 
 	/**
 	 * @dataProvider provide
 	 */
-	public function testGenerateBaselineRequiresSingleCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
+	public function testGenerateBaselineFailsWithoutConfiguredPath(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$schema = new SchemaProvider($dbal);
 		$tester = new CommandTester(
 			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
 		);
 
-		$tester->execute(['--category' => 'all', '--generate-baseline' => $this->tempPath()]);
+		$tester->execute(
+			['--category' => 'structure', '--generate-baseline' => true],
+			['decorated' => false],
+		);
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
-		self::assertStringContainsString('requires a single --category', $tester->getDisplay());
+		self::assertStringContainsString('No baseline path configured for structure', $tester->getDisplay());
 	}
 
 	private function prepare(DbalAdapter $dbal, string $db, bool $withMissingPrimaryKey): void

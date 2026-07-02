@@ -6,7 +6,7 @@ use Orisai\DbAudit\AnalyserCategory;
 use Orisai\DbAudit\Ignore\Baseline;
 use Orisai\DbAudit\Ignore\IgnoredError;
 use Orisai\DbAudit\Report\Violation;
-use Orisai\DbAudit\Runner\AnalysisReport;
+use Orisai\DbAudit\Report\Warning;
 use Orisai\DbAudit\Runner\Runner;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -16,6 +16,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use function arsort;
 use function count;
 use function implode;
+use function is_file;
 use function memory_get_peak_usage;
 use function microtime;
 use function sprintf;
@@ -26,10 +27,22 @@ final class AnalyseCommand extends Command
 	/** @readonly */
 	private Runner $runner;
 
-	public function __construct(Runner $runner)
+	/** @readonly */
+	private ?string $structureBaselinePath;
+
+	/** @readonly */
+	private ?string $dataBaselinePath;
+
+	public function __construct(
+		Runner $runner,
+		?string $structureBaselinePath = null,
+		?string $dataBaselinePath = null
+	)
 	{
 		parent::__construct();
 		$this->runner = $runner;
+		$this->structureBaselinePath = $structureBaselinePath;
+		$this->dataBaselinePath = $dataBaselinePath;
 	}
 
 	public static function getDefaultName(): string
@@ -52,9 +65,9 @@ final class AnalyseCommand extends Command
 		);
 		$this->addOption(
 			'generate-baseline',
-			null,
-			InputOption::VALUE_REQUIRED,
-			'Write the current errors to a baseline file at the given path (requires a single --category)',
+			'b',
+			InputOption::VALUE_NONE,
+			'Write all current errors to the configured baseline(s) and succeed',
 		);
 	}
 
@@ -65,8 +78,8 @@ final class AnalyseCommand extends Command
 		$categoryOption = $input->getOption('category');
 		$categoryOption = $categoryOption !== null ? (string) $categoryOption : null;
 
-		[$categoryOk, $category] = $this->resolveCategory($categoryOption);
-		if (!$categoryOk) {
+		[$categoriesOk, $categories] = $this->resolveCategories($categoryOption);
+		if (!$categoriesOk) {
 			if ($categoryOption === null || $categoryOption === '') {
 				$io->error('Choose --category: structure, data or all.');
 			} else {
@@ -79,55 +92,118 @@ final class AnalyseCommand extends Command
 			return self::FAILURE;
 		}
 
-		$baselinePath = $input->getOption('generate-baseline');
-		if ($baselinePath !== null) {
-			if ($category === null) {
-				$io->error('--generate-baseline requires a single --category (structure or data), not "all".');
+		if ($input->getOption('generate-baseline') === true) {
+			return $this->generateBaselines($io, $categories);
+		}
+
+		return $this->analyseAndReport($io, $categories);
+	}
+
+	/**
+	 * @return array{0: bool, 1: list<AnalyserCategory>}
+	 */
+	private function resolveCategories(?string $option): array
+	{
+		if ($option === null || $option === '') {
+			return [false, []];
+		}
+
+		if ($option === 'all') {
+			return [true, [AnalyserCategory::structure(), AnalyserCategory::data()]];
+		}
+
+		$category = AnalyserCategory::tryFrom($option);
+		if ($category === null) {
+			return [false, []];
+		}
+
+		return [true, [$category]];
+	}
+
+	private function baselinePathFor(AnalyserCategory $category): ?string
+	{
+		return $category === AnalyserCategory::structure() ? $this->structureBaselinePath : $this->dataBaselinePath;
+	}
+
+	/**
+	 * @param list<AnalyserCategory> $categories
+	 */
+	private function generateBaselines(SymfonyStyle $io, array $categories): int
+	{
+		foreach ($categories as $category) {
+			$path = $this->baselinePathFor($category);
+			if ($path === null) {
+				$io->error(sprintf('No baseline path configured for %s.', $category->value));
 
 				return self::FAILURE;
 			}
 
 			$errors = $this->runner->collectErrors($category);
-			Baseline::write((string) $baselinePath, $errors);
+			Baseline::write($path, $errors);
 			$io->success(sprintf(
-				'Baseline written: %d %s.',
+				'Baseline written for %s: %d %s.',
+				$category->value,
 				count($errors),
 				count($errors) === 1 ? 'entry' : 'entries',
 			));
-
-			return self::SUCCESS;
 		}
 
-		$start = microtime(true);
-		$report = $this->runner->analyse($category);
-		$elapsed = microtime(true) - $start;
-		$peakBytes = memory_get_peak_usage(true);
-
-		$this->renderFindings($io, $report->getErrors());
-		$this->renderSummaryTable($io, $report->getErrors());
-		$this->renderStatus($io, $report);
-		$this->renderWarningsAndUnmatched($io, $report);
-		$this->renderFooter($io, $elapsed, $peakBytes);
-
-		return $report->hasErrors() ? self::FAILURE : self::SUCCESS;
+		return self::SUCCESS;
 	}
 
 	/**
-	 * @return array{0: bool, 1: AnalyserCategory|null}
+	 * @param list<AnalyserCategory> $categories
 	 */
-	private function resolveCategory(?string $option): array
+	private function analyseAndReport(SymfonyStyle $io, array $categories): int
 	{
-		if ($option === null || $option === '') {
-			return [false, null];
+		$start = microtime(true);
+
+		$errors = [];
+		$ignoredCount = 0;
+		$baselinedCount = 0;
+		$warnings = [];
+		$unmatched = [];
+
+		foreach ($categories as $category) {
+			$report = $this->runner->analyse($category);
+			$remaining = $report->getErrors();
+
+			$path = $this->baselinePathFor($category);
+			if ($path !== null && is_file($path)) {
+				$result = Baseline::load($path)->apply($remaining);
+				$remaining = $result->getRemaining();
+				$baselinedCount += $result->getIgnoredCount();
+
+				foreach ($result->getUnmatched() as $ignore) {
+					$unmatched[] = $ignore;
+				}
+			}
+
+			foreach ($remaining as $violation) {
+				$errors[] = $violation;
+			}
+
+			$ignoredCount += $report->getIgnoredCount();
+
+			foreach ($report->getWarnings() as $warning) {
+				$warnings[] = $warning;
+			}
+
+			foreach ($report->getUnmatchedIgnores() as $ignore) {
+				$unmatched[] = $ignore;
+			}
 		}
 
-		if ($option === 'all') {
-			return [true, null];
-		}
+		$elapsed = microtime(true) - $start;
+		$peakBytes = memory_get_peak_usage(true);
 
-		$category = AnalyserCategory::tryFrom($option);
+		$this->renderFindings($io, $errors);
+		$this->renderSummaryTable($io, $errors);
+		$this->renderStatus($io, $errors, $ignoredCount, $baselinedCount, $warnings);
+		$this->renderWarningsAndUnmatched($io, $warnings, $unmatched);
+		$this->renderFooter($io, $elapsed, $peakBytes);
 
-		return [$category !== null, $category];
+		return $errors !== [] || $unmatched !== [] ? self::FAILURE : self::SUCCESS;
 	}
 
 	/**
@@ -179,32 +255,47 @@ final class AnalyseCommand extends Command
 		$io->table(['Identifier', 'Count'], $rows);
 	}
 
-	private function renderStatus(SymfonyStyle $io, AnalysisReport $report): void
+	/**
+	 * @param list<Violation> $errors
+	 * @param list<Warning>   $warnings
+	 */
+	private function renderStatus(
+		SymfonyStyle $io,
+		array $errors,
+		int $ignoredCount,
+		int $baselinedCount,
+		array $warnings
+	): void
 	{
-		$errorCount = count($report->getErrors());
-		if ($report->hasErrors()) {
+		$errorCount = count($errors);
+		if ($errorCount > 0) {
 			$io->error(sprintf('Found %d error%s', $errorCount, $errorCount === 1 ? '' : 's'));
 		} else {
 			$io->success('No errors');
 		}
 
-		$warningCount = count($report->getWarnings());
+		$warningCount = count($warnings);
 		$io->writeln(sprintf(
-			'Ignored: %d   Warnings: %d%s',
-			$report->getIgnoredCount(),
+			'Ignored: %d   Baselined: %d   Warnings: %d%s',
+			$ignoredCount,
+			$baselinedCount,
 			$warningCount,
 			$warningCount > 0 ? ' ⚠️' : '',
 		));
 		$io->newLine();
 	}
 
-	private function renderWarningsAndUnmatched(SymfonyStyle $io, AnalysisReport $report): void
+	/**
+	 * @param list<Warning>      $warnings
+	 * @param list<IgnoredError> $unmatched
+	 */
+	private function renderWarningsAndUnmatched(SymfonyStyle $io, array $warnings, array $unmatched): void
 	{
-		foreach ($report->getWarnings() as $warning) {
+		foreach ($warnings as $warning) {
 			$io->warning($warning->getMessage());
 		}
 
-		foreach ($report->getUnmatchedIgnores() as $ignore) {
+		foreach ($unmatched as $ignore) {
 			$io->error('Ignored error never matched: ' . $this->describeIgnore($ignore));
 		}
 	}
