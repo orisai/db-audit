@@ -268,24 +268,22 @@ wiring above — it is never auto-discovered.
 
 ### CLI commands
 
-Three commands (require `symfony/console`) wrap a configured `Runner` (and, for removal, a baseline file):
+Two commands (require `symfony/console`) wrap a configured `Runner` and, for the baseline, two configured file paths
+(one for structure, one for data — never mixed; `null` disables baselines for that category):
 
 | Command | Purpose |
 | --- | --- |
-| `db-audit:analyse` | Run the analysers and print each error (message, `identifier`, whether it is `fixable`, optional hint), warnings and unmatched ignores. `--category=structure\|data` limits the run; `--generate-baseline=PATH` (with `--category`) writes a fresh baseline instead. Exits non-zero on errors or unmatched ignores. |
-| `db-audit:generate` | Compose the fixes; print the unfixable findings first, then `Generated: N   Unfixable: M`, then advisories. `--output=PATH` writes the combined SQL to a file (otherwise stdout); `--category` limits the run. **Exits non-zero when anything is unfixable.** |
-| `db-audit:baseline:remove` | Remove entries from a baseline file (`path` argument) matching `--key`, `--raw-message`, `--count`, `--table` and/or `--column` (every provided filter must match). |
+| `db-audit:analyse` | Run the analysers and print each error (message, `identifier`, whether it is `fixable`, optional hint), a per-identifier summary table, a status box and a time/memory footer. `--category=structure\|data\|all` is **required**. `-b`/`--generate-baseline` writes all current errors to the configured baseline(s) for the selected categories and succeeds; without it, the configured baseline(s) are subtracted from the reported errors first and the command fails iff any non-baselined error remains. `--generate-fix=PATH` composes the fixes for a **single** category (not `all`, and never combined with `-b`) and writes the SQL to `PATH`; exits non-zero when anything is unfixable. |
+| `db-audit:baseline:remove` | Remove entries from the configured baseline for one category (`--category=structure\|data`, required) matching `--key`, `--raw-message`, `--count`, `--table` and/or `--column` (every provided filter must match). |
 
 ```php
 use Orisai\DbAudit\Cmd\AnalyseCommand;
 use Orisai\DbAudit\Cmd\BaselineRemoveCommand;
-use Orisai\DbAudit\Cmd\GenerateCommand;
 use Symfony\Component\Console\Application;
 
 $application = new Application();
-$application->add(new AnalyseCommand($runner));
-$application->add(new GenerateCommand($runner));
-$application->add(new BaselineRemoveCommand());
+$application->add(new AnalyseCommand($runner, 'db-audit-baseline-structure.php', 'db-audit-baseline-data.php'));
+$application->add(new BaselineRemoveCommand('db-audit-baseline-structure.php', 'db-audit-baseline-data.php'));
 $application->run();
 ```
 
@@ -293,11 +291,14 @@ $application->run();
 # Structure findings in CI, against the committed schema
 php bin/console db-audit:analyse --category=structure
 
-# Accept the current structure findings as a baseline (load it back from your wiring)
-php bin/console db-audit:analyse --category=structure --generate-baseline=db-audit-baseline-structure.php
+# Accept the current structure findings as a baseline
+php bin/console db-audit:analyse --category=structure --generate-baseline
 
-# Produce the migration SQL (exits non-zero if anything is unfixable)
-php bin/console db-audit:generate --output=migration.sql
+# Re-run: the baseline is subtracted; fails only if new errors remain
+php bin/console db-audit:analyse --category=structure
+
+# Produce the migration SQL for a single category (exits non-zero if anything is unfixable)
+php bin/console db-audit:analyse --category=structure --generate-fix=migration.sql
 ```
 
 ## Outdated collation migration
@@ -511,7 +512,7 @@ the **schema-stored** SQL it *can* see — views, stored routines, triggers, eve
 and names any object that references a migrated charset/collation, so you can review those directly. These advisories
 are available from `generate()->getAdvisories()` (and `analyse()->getAdvisories()`); render or log them from your own
 wiring. The migration is produced and configured as shown in [Configuration](#configuration) and run through the generic
-[`db-audit:generate`](#cli-commands) command.
+[`db-audit:analyse --generate-fix`](#cli-commands) command.
 
 ## Unique-index collation collision auditor
 

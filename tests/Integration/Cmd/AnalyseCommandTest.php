@@ -4,6 +4,7 @@ namespace Tests\Orisai\DbAudit\Integration\Cmd;
 
 use Generator;
 use Orisai\DbAudit\Auditor\MissingPrimaryKeyMysqlAuditor;
+use Orisai\DbAudit\Auditor\NullableWithNoNullsMysqlAuditor;
 use Orisai\DbAudit\Cmd\AnalyseCommand;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
@@ -211,6 +212,82 @@ final class AnalyseCommandTest extends TestCase
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
 		self::assertStringContainsString('No baseline path configured for structure', $tester->getDisplay());
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGenerateFixWritesSqlForSingleCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$shortcuts = new MysqlShortcuts($dbal);
+		$db = 'analyse_cmd_generate_fix';
+		$shortcuts->dropDatabaseIfExists($db);
+		$shortcuts->createDatabase($db);
+		$shortcuts->useDatabase($db);
+
+		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `t` (`a` int NULL, `b` varchar(50) NULL)');
+		$dbal->exec(/** @lang MySQL */ "INSERT INTO `t` (`a`, `b`) VALUES (1, 'x'), (2, 'y')");
+
+		$schema = new SchemaProvider($dbal);
+		$path = $this->tempPath();
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new NullableWithNoNullsMysqlAuditor($schema)])),
+		);
+
+		$tester->execute(['--category' => 'data', '--generate-fix' => $path], ['decorated' => false]);
+
+		self::assertSame(Command::SUCCESS, $tester->getStatusCode());
+		$sql = (string) file_get_contents($path);
+		self::assertNotSame('', $sql);
+		self::assertStringContainsString('MODIFY', $sql);
+
+		$display = $tester->getDisplay();
+		self::assertStringContainsString('Generated', $display);
+		self::assertStringContainsString('SQL written to', $display);
+
+		unlink($path);
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGenerateFixRejectsAllCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$schema = new SchemaProvider($dbal);
+		$path = $this->tempPath();
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
+
+		$tester->execute(['--category' => 'all', '--generate-fix' => $path], ['decorated' => false]);
+
+		self::assertSame(Command::FAILURE, $tester->getStatusCode());
+		self::assertStringContainsString('--generate-fix needs a single --category', $tester->getDisplay());
+		self::assertSame('', (string) file_get_contents($path));
+
+		unlink($path);
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGenerateFixRejectsWithGenerateBaseline(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$schema = new SchemaProvider($dbal);
+		$path = $this->tempPath();
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
+
+		$tester->execute(
+			['--category' => 'structure', '--generate-fix' => $path, '--generate-baseline' => true],
+			['decorated' => false],
+		);
+
+		self::assertSame(Command::FAILURE, $tester->getStatusCode());
+		self::assertStringContainsString('cannot be combined with --generate-baseline', $tester->getDisplay());
+
+		unlink($path);
 	}
 
 	private function prepare(DbalAdapter $dbal, string $db, bool $withMissingPrimaryKey): void

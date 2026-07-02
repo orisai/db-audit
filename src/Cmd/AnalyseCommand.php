@@ -15,6 +15,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use function arsort;
 use function count;
+use function file_put_contents;
 use function implode;
 use function is_file;
 use function memory_get_peak_usage;
@@ -69,6 +70,12 @@ final class AnalyseCommand extends Command
 			InputOption::VALUE_NONE,
 			'Write all current errors to the configured baseline(s) and succeed',
 		);
+		$this->addOption(
+			'generate-fix',
+			null,
+			InputOption::VALUE_REQUIRED,
+			'Write migration SQL for fixable findings of the (single) category to this path',
+		);
 	}
 
 	protected function execute(InputInterface $input, OutputInterface $output): int
@@ -90,6 +97,23 @@ final class AnalyseCommand extends Command
 			}
 
 			return self::FAILURE;
+		}
+
+		$generateFix = $input->getOption('generate-fix');
+		if ($generateFix !== null) {
+			if ($input->getOption('generate-baseline') === true) {
+				$io->error('--generate-fix cannot be combined with --generate-baseline.');
+
+				return self::FAILURE;
+			}
+
+			if (count($categories) > 1) {
+				$io->error('--generate-fix needs a single --category (structure or data), not "all".');
+
+				return self::FAILURE;
+			}
+
+			return $this->generateFix($io, $categories[0], (string) $generateFix);
 		}
 
 		if ($input->getOption('generate-baseline') === true) {
@@ -156,6 +180,45 @@ final class AnalyseCommand extends Command
 		}
 
 		return self::SUCCESS;
+	}
+
+	private function generateFix(SymfonyStyle $io, AnalyserCategory $category, string $path): int
+	{
+		$start = microtime(true);
+		$report = $this->runner->generate($category);
+		$elapsed = microtime(true) - $start;
+		$peakBytes = memory_get_peak_usage(true);
+
+		$this->renderFindings($io, $report->getUnfixable());
+
+		$unfixableCount = count($report->getUnfixable());
+		if ($report->hasUnfixable()) {
+			$io->error(sprintf(
+				'%d unfixable finding%s (SQL covers the rest)',
+				$unfixableCount,
+				$unfixableCount === 1 ? '' : 's',
+			));
+		} else {
+			$generatedCount = $report->getGeneratedCount();
+			$io->success(sprintf('Generated %d fix%s', $generatedCount, $generatedCount === 1 ? '' : 'es'));
+		}
+
+		foreach ($report->getAdvisories() as $advisory) {
+			$io->note($advisory->getMessage());
+		}
+
+		$this->renderWarningsAndUnmatched($io, $report->getWarnings(), []);
+		$this->renderFooter($io, $elapsed, $peakBytes);
+
+		if (file_put_contents($path, $report->getSql()) === false) {
+			$io->error('Failed to write ' . $path);
+
+			return self::FAILURE;
+		}
+
+		$io->writeln('SQL written to ' . $path);
+
+		return $report->hasUnfixable() ? self::FAILURE : self::SUCCESS;
 	}
 
 	/**
