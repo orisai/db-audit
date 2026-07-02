@@ -39,9 +39,8 @@ final class AnalyseCommandTest extends TestCase
 	/**
 	 * @dataProvider provide
 	 */
-	public function testReportsErrorsAndFails(DbalAdapter $dbal, DatabaseEngine $engine): void
+	public function testMissingCategoryFails(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$this->prepare($dbal, 'analyse_cmd');
 		$schema = new SchemaProvider($dbal);
 		$tester = new CommandTester(
 			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
@@ -50,10 +49,63 @@ final class AnalyseCommandTest extends TestCase
 		$tester->execute([]);
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
+		self::assertStringContainsString('Choose --category', $tester->getDisplay());
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testInvalidCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
+
+		$tester->execute(['--category' => 'bogus']);
+
+		self::assertSame(Command::FAILURE, $tester->getStatusCode());
+		self::assertStringContainsString('Invalid --category', $tester->getDisplay());
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testReportsErrorsAndFails(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$this->prepare($dbal, 'analyse_cmd', true);
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
+
+		$tester->execute(['--category' => 'structure']);
+
+		self::assertSame(Command::FAILURE, $tester->getStatusCode());
 		$display = $tester->getDisplay();
 		self::assertStringContainsString('has no primary key', $display);
 		self::assertStringContainsString('identifier: missing_primary_key', $display);
-		self::assertStringContainsString('Errors: 1', $display);
+		self::assertStringContainsString('Identifier', $display);
+		self::assertStringContainsString('Found 1 error', $display);
+		self::assertMatchesRegularExpression('~Time: \d+\.\d\ds~', $display);
+		self::assertMatchesRegularExpression('~Memory: \d+\.\d MB~', $display);
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testNoErrorsSucceeds(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$this->prepare($dbal, 'analyse_cmd_clean', false);
+		$schema = new SchemaProvider($dbal);
+		$tester = new CommandTester(
+			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
+		);
+
+		$tester->execute(['--category' => 'structure']);
+
+		self::assertSame(Command::SUCCESS, $tester->getStatusCode());
+		self::assertStringContainsString('No errors', $tester->getDisplay());
 	}
 
 	/**
@@ -61,7 +113,7 @@ final class AnalyseCommandTest extends TestCase
 	 */
 	public function testGeneratesBaseline(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
-		$this->prepare($dbal, 'analyse_cmd_baseline');
+		$this->prepare($dbal, 'analyse_cmd_baseline', true);
 		$path = $this->tempPath();
 		$schema = new SchemaProvider($dbal);
 		$tester = new CommandTester(
@@ -80,42 +132,31 @@ final class AnalyseCommandTest extends TestCase
 	/**
 	 * @dataProvider provide
 	 */
-	public function testGenerateBaselineRequiresCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
+	public function testGenerateBaselineRequiresSingleCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
 	{
 		$schema = new SchemaProvider($dbal);
 		$tester = new CommandTester(
 			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
 		);
 
-		$tester->execute(['--generate-baseline' => $this->tempPath()]);
+		$tester->execute(['--category' => 'all', '--generate-baseline' => $this->tempPath()]);
 
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
-		self::assertStringContainsString('requires --category', $tester->getDisplay());
+		self::assertStringContainsString('requires a single --category', $tester->getDisplay());
 	}
 
-	/**
-	 * @dataProvider provide
-	 */
-	public function testInvalidCategory(DbalAdapter $dbal, DatabaseEngine $engine): void
-	{
-		$schema = new SchemaProvider($dbal);
-		$tester = new CommandTester(
-			new AnalyseCommand(new Runner($schema, [new MissingPrimaryKeyMysqlAuditor($schema)])),
-		);
-
-		$tester->execute(['--category' => 'nope']);
-
-		self::assertSame(Command::FAILURE, $tester->getStatusCode());
-		self::assertStringContainsString('Invalid --category', $tester->getDisplay());
-	}
-
-	private function prepare(DbalAdapter $dbal, string $db): void
+	private function prepare(DbalAdapter $dbal, string $db, bool $withMissingPrimaryKey): void
 	{
 		$shortcuts = new MysqlShortcuts($dbal);
 		$shortcuts->dropDatabaseIfExists($db);
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
-		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `no_pk` (`a` int NOT NULL)');
+
+		if ($withMissingPrimaryKey) {
+			$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `no_pk` (`a` int NOT NULL)');
+		} else {
+			$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `has_pk` (`a` int NOT NULL, PRIMARY KEY (`a`))');
+		}
 	}
 
 	private function tempPath(): string
