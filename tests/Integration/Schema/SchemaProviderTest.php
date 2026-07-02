@@ -736,4 +736,161 @@ SQL,
 		self::assertContains('child', $tableNames);
 	}
 
+	private function setUpGlobalExcludeDatabase(DbalAdapter $dbal, string $db): void
+	{
+		$shortcuts = new MysqlShortcuts($dbal);
+		$shortcuts->dropDatabaseIfExists($db);
+		$shortcuts->createUtf8mb3CzechDatabase($db);
+		$shortcuts->useDatabase($db);
+
+		// An excluded `_<int>` temp table referenced by a normal one, plus an unrelated normal table.
+		$dbal->exec(
+		/** @lang MySQL */
+			<<<'SQL'
+CREATE TABLE `_10520` (
+	`id` int NOT NULL,
+	`code` varchar(50) NOT NULL,
+	PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_czech_ci
+SQL,
+		);
+		$dbal->exec(
+		/** @lang MySQL */
+			<<<'SQL'
+CREATE TABLE `normal` (
+	`id` int NOT NULL,
+	`ref_id` int NOT NULL,
+	`note` varchar(50) NULL,
+	PRIMARY KEY (`id`),
+	KEY `ix_ref` (`ref_id`),
+	CONSTRAINT `fk_normal_ref` FOREIGN KEY (`ref_id`) REFERENCES `_10520` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_czech_ci
+SQL,
+		);
+		$dbal->exec(
+		/** @lang MySQL */
+			<<<'SQL'
+CREATE TABLE `keep` (
+	`id` int NOT NULL,
+	`label` varchar(50) NULL,
+	PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_czech_ci
+SQL,
+		);
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGlobalExcludeRemovesTableFromScopedColumns(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$db = 'schema_provider_global_exclude_columns';
+		$this->setUpGlobalExcludeDatabase($dbal, $db);
+
+		// The provider carries the global exclude; the request adds nothing (empty per-request exclude).
+		$provider = new SchemaProvider($dbal, (new TableExclude())->withPattern('^_[0-9]+$'));
+		$provider->primeColumns([new SchemaRequest(ColumnCharsetClass::any())]);
+
+		// The excluded `_10520` is absent from the scoped snapshot; the normal tables survive.
+		self::assertSame([], $this->columnNamesOf($provider, '_10520'));
+		self::assertContains('note', $this->columnNamesOf($provider, 'normal'));
+		self::assertContains('label', $this->columnNamesOf($provider, 'keep'));
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGlobalExcludeForeignKeyBoundaryReincludesExcludedTable(
+		DbalAdapter $dbal,
+		DatabaseEngine $engine
+	): void
+	{
+		$db = 'schema_provider_global_exclude_fk';
+		$this->setUpGlobalExcludeDatabase($dbal, $db);
+
+		// Without FK-related expansion the globally-excluded `_10520` stays out.
+		$without = new SchemaProvider($dbal, (new TableExclude())->withPattern('^_[0-9]+$'));
+		$without->primeColumns([new SchemaRequest(ColumnCharsetClass::any(), null, false)]);
+		self::assertSame([], $this->columnNamesOf($without, '_10520'));
+
+		// With it, the FK from the non-excluded `normal` re-includes the excluded `_10520`.
+		$with = new SchemaProvider($dbal, (new TableExclude())->withPattern('^_[0-9]+$'));
+		$with->primeColumns([new SchemaRequest(ColumnCharsetClass::any(), null, true)]);
+		self::assertContains('code', $this->columnNamesOf($with, '_10520'));
+		self::assertContains('note', $this->columnNamesOf($with, 'normal'));
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGlobalExcludeAppliedToScopedStatistics(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$db = 'schema_provider_global_exclude_stats';
+		$this->setUpGlobalExcludeDatabase($dbal, $db);
+
+		$provider = new SchemaProvider($dbal, (new TableExclude())->withPattern('^_[0-9]+$'));
+		$provider->primeStatistics([new SchemaRequest(ColumnCharsetClass::any(), null, false, true)]);
+
+		$tables = [];
+		foreach ($provider->getStatistics() as $stat) {
+			$tables[$stat['TABLE_NAME']] = true;
+		}
+
+		self::assertArrayHasKey('normal', $tables);
+		self::assertArrayHasKey('keep', $tables);
+		self::assertArrayNotHasKey('_10520', $tables);
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGlobalExcludeAppliedToScopedTablesKeepsBoundaryForeignKey(
+		DbalAdapter $dbal,
+		DatabaseEngine $engine
+	): void
+	{
+		$db = 'schema_provider_global_exclude_tables';
+		$this->setUpGlobalExcludeDatabase($dbal, $db);
+
+		$provider = new SchemaProvider($dbal, (new TableExclude())->withPattern('^_[0-9]+$'));
+		$provider->primeTablesAndForeignKeys([
+			new SchemaRequest(ColumnCharsetClass::any(), null, true, false, true),
+		]);
+
+		$tableNames = [];
+		foreach ($provider->getTables() as $table) {
+			$tableNames[$table['TABLE_NAME']] = true;
+		}
+
+		// Table metadata is scoped by the global exclude; the FK boundary does NOT pull `_10520` metadata in.
+		self::assertArrayHasKey('normal', $tableNames);
+		self::assertArrayHasKey('keep', $tableNames);
+		self::assertArrayNotHasKey('_10520', $tableNames);
+
+		// The boundary FK is still fetched (its referencing side `normal` is in scope), so the graph keeps it.
+		$foreignKeys = $provider->getForeignKeys();
+		self::assertCount(1, $foreignKeys);
+		self::assertSame('fk_normal_ref', $foreignKeys[0]['CONSTRAINT_NAME']);
+		self::assertSame('_10520', $foreignKeys[0]['REFERENCED_TABLE_NAME']);
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testGlobalExcludeMergesWithRequestExclude(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$db = 'schema_provider_global_exclude_merge';
+		$this->setUpGlobalExcludeDatabase($dbal, $db);
+
+		// Global exclude drops `_10520`; the per-request exclude additionally drops `normal`; `keep` survives.
+		$provider = new SchemaProvider($dbal, (new TableExclude())->withPattern('^_[0-9]+$'));
+		$provider->primeColumns([
+			new SchemaRequest(ColumnCharsetClass::any(), (new TableExclude())->withPattern('^normal$')),
+		]);
+
+		self::assertSame([], $this->columnNamesOf($provider, '_10520'));
+		self::assertSame([], $this->columnNamesOf($provider, 'normal'));
+		self::assertContains('label', $this->columnNamesOf($provider, 'keep'));
+	}
+
 }

@@ -23,6 +23,8 @@ final class SchemaProvider
 
 	private DbalAdapter $dbal;
 
+	private TableExclude $exclude;
+
 	/** @var list<string>|null */
 	private ?array $tableNames = null;
 
@@ -67,9 +69,10 @@ final class SchemaProvider
 	/** @var list<array<string, mixed>>|null */
 	private ?array $events = null;
 
-	public function __construct(DbalAdapter $dbal)
+	public function __construct(DbalAdapter $dbal, ?TableExclude $exclude = null)
 	{
 		$this->dbal = $dbal;
+		$this->exclude = $exclude ?? new TableExclude();
 	}
 
 	public function getDbal(): DbalAdapter
@@ -128,15 +131,15 @@ SQL,
 	 */
 	public function primeTablesAndForeignKeys(array $requests): void
 	{
-		[$tableNeeded, $tableWholeDatabase, $tableScope] = $this->tableMetaScope($requests);
-		[$fkNeeded, $fkWholeDatabase, $fkScope] = $this->tableMetaScope($requests, true);
+		[$tableNeeded, $tableWholeDatabase, $tablePredicate] = $this->tableMetaScope($requests, false);
+		[$fkNeeded, $fkWholeDatabase, $fkPredicate] = $this->tableMetaScope($requests, true);
 
 		if ($tableNeeded) {
-			$this->tables = $tableWholeDatabase ? $this->fetchTables(null) : $this->fetchTables($tableScope);
+			$this->tables = $this->fetchTables($tableWholeDatabase ? null : $tablePredicate);
 		}
 
 		if ($fkNeeded) {
-			$this->foreignKeys = $fkWholeDatabase ? $this->fetchForeignKeys(null) : $this->fetchForeignKeys($fkScope);
+			$this->foreignKeys = $this->fetchForeignKeys($fkWholeDatabase ? null : $fkPredicate);
 		}
 
 		$this->foreignKeyGraph = null;
@@ -153,27 +156,21 @@ SQL,
 	}
 
 	/**
-	 * @param list<string>|null $scope null = whole database, [] = nothing
+	 * @param literal-string|null $predicate null = whole database
 	 * @return list<array<string, mixed>>
 	 */
-	private function fetchTables(?array $scope): array
+	private function fetchTables(?string $predicate): array
 	{
 		$tablesSelect = 'SELECT TABLE_NAME, ENGINE, ROW_FORMAT, TABLE_COLLATION'
 			. ' FROM INFORMATION_SCHEMA.TABLES'
 			. " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'";
 		$tablesOrder = ' ORDER BY TABLE_NAME';
 
-		if ($scope === null) {
+		if ($predicate === null) {
 			return $this->dbal->query($tablesSelect . $tablesOrder);
 		}
 
-		if ($scope === []) {
-			return [];
-		}
-
-		return $this->dbal->query(
-			$tablesSelect . ' AND TABLE_NAME IN (' . $this->inList($scope) . ')' . $tablesOrder,
-		);
+		return $this->dbal->query($tablesSelect . ' AND (' . $predicate . ')' . $tablesOrder);
 	}
 
 	/**
@@ -270,23 +267,25 @@ SQL,
 	{
 		$needed = false;
 		$wholeDatabase = false;
-		$tableNames = [];
+		$predicates = '';
 		foreach ($requests as $request) {
 			if (!$request->needsStatistics()) {
 				continue;
 			}
 
 			$needed = true;
-			$scope = $this->tableScope($request);
-			if ($scope === null) {
+			$condition = $this->tableCondition($request);
+			if ($condition === null) {
 				$wholeDatabase = true;
 
 				continue;
 			}
 
-			foreach ($scope as $name) {
-				$tableNames[$name] = true;
+			if ($predicates !== '') {
+				$predicates .= ' OR ';
 			}
+
+			$predicates .= $condition;
 		}
 
 		if (!$needed) {
@@ -299,12 +298,12 @@ SQL,
 			);
 		}
 
-		if ($tableNames === []) {
+		if ($predicates === '') {
 			return [];
 		}
 
-		$sql = self::StatisticsSelect . ' WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('
-			. $this->inList(array_keys($tableNames)) . ')' . self::StatisticsOrder;
+		$sql = self::StatisticsSelect . ' WHERE TABLE_SCHEMA = DATABASE() AND (' . $predicates . ')'
+			. self::StatisticsOrder;
 
 		return $this->dbal->query($sql);
 	}
@@ -363,60 +362,51 @@ SQL,
 	}
 
 	/**
+	 * The COLUMNS/STATISTICS table filter for a request: the effective exclude (the request's exclude merged
+	 * with the provider's global one) rendered as `TABLE_NAME NOT REGEXP …`, plus — when the request asks for
+	 * foreign-key-related tables — an `OR TABLE_NAME IN (…)` that re-includes the excluded tables sitting on the
+	 * far side of a foreign key touching a non-excluded one. Selects the same tables as the former
+	 * `TABLE_NAME IN (non-excluded ∪ fk-reincluded)`: NOT REGEXP is the non-excluded set, the IN adds the
+	 * boundary tables. Returns null when the effective exclude is empty (the predicate then matches the whole
+	 * database).
+	 *
 	 * @return literal-string|null null = whole database (no table excluded)
 	 */
 	private function tableCondition(SchemaRequest $request): ?string
 	{
-		$scope = $this->tableScope($request);
-		if ($scope === null) {
+		$effective = $request->getExcludeTables()->merge($this->exclude);
+		$base = $effective->sqlCondition($this->dbal, 'TABLE_NAME');
+		if ($base === null) {
 			return null;
 		}
 
-		if ($scope === []) {
-			return '1 = 0';
-		}
-
-		return 'TABLE_NAME IN (' . $this->inList($scope) . ')';
-	}
-
-	/**
-	 * The names of the tables a request covers: the non-excluded tables, plus (when the request asks for it)
-	 * the other-side tables of any foreign key touching an included one. Returns null when nothing is
-	 * excluded (the predicate then omits its table filter and matches the whole database).
-	 *
-	 * @return list<string>|null
-	 */
-	private function tableScope(SchemaRequest $request): ?array
-	{
-		$exclude = $request->getExcludeTables();
-		if ($exclude->isEmpty()) {
-			return null;
+		if (!$request->includesForeignKeyRelated()) {
+			return $base;
 		}
 
 		$included = [];
-		$excludedAny = false;
 		foreach ($this->getTableNames() as $name) {
-			if ($exclude->matches($name)) {
-				$excludedAny = true;
-
-				continue;
-			}
-
-			$included[$name] = true;
-		}
-
-		if (!$excludedAny) {
-			return null;
-		}
-
-		if ($request->includesForeignKeyRelated()) {
-			foreach ($this->getForeignKeyGraph()->getTouching($included) as $constraint) {
-				$included[$constraint->table] = true;
-				$included[$constraint->referencedTable] = true;
+			if (!$effective->matches($name)) {
+				$included[$name] = true;
 			}
 		}
 
-		return array_keys($included);
+		$reincluded = [];
+		foreach ($this->getForeignKeyGraph()->getTouching($included) as $constraint) {
+			if ($effective->matches($constraint->table)) {
+				$reincluded[$constraint->table] = true;
+			}
+
+			if ($effective->matches($constraint->referencedTable)) {
+				$reincluded[$constraint->referencedTable] = true;
+			}
+		}
+
+		if ($reincluded === []) {
+			return $base;
+		}
+
+		return '(' . $base . ' OR TABLE_NAME IN (' . $this->inList(array_keys($reincluded)) . '))';
 	}
 
 	/**
@@ -457,21 +447,14 @@ SQL,
 	 * tables is in the set), so every kept KCU row has its rule available. The merged shape and row order
 	 * (TABLE_NAME, CONSTRAINT_NAME, ORDINAL_POSITION) are identical to the former JOIN.
 	 *
-	 * @param list<string>|null $scope null = whole database, [] = nothing
+	 * @param literal-string|null $predicate null = whole database
 	 * @return list<array<string, mixed>>
 	 */
-	private function fetchForeignKeys(?array $scope): array
+	private function fetchForeignKeys(?string $predicate): array
 	{
-		if ($scope === []) {
-			return [];
-		}
-
-		// Both INFORMATION_SCHEMA tables expose TABLE_NAME (child) and REFERENCED_TABLE_NAME (parent), so the
-		// same OR-scope applies to each and the rules query stays aligned with the columns query.
 		$scopeCondition = '';
-		if ($scope !== null) {
-			$in = $this->inList($scope);
-			$scopeCondition = ' AND (TABLE_NAME IN (' . $in . ') OR REFERENCED_TABLE_NAME IN (' . $in . '))';
+		if ($predicate !== null) {
+			$scopeCondition = ' AND (' . $predicate . ')';
 		}
 
 		$columnRows = $this->dbal->query(
@@ -511,56 +494,52 @@ SQL,
 	}
 
 	/**
-	 * The union table set for scoped table-metadata or FK fetching. When $includeFkRelated is false, only
-	 * requests with needsTableMetadata() qualify; when true, requests with includesForeignKeyRelated() also
-	 * qualify (FKs are needed for boundary handling regardless of table-metadata need). An empty exclude (or
-	 * one that matched no real table) means whole database.
+	 * The scoped table-metadata / FK filter for the union of the given requests, as an OR of per-request
+	 * `TABLE_NAME NOT REGEXP …` predicates (each the request's exclude merged with the provider's global one).
+	 * When $forForeignKeys is false only requests with needsTableMetadata() qualify and the predicate filters
+	 * TABLE_NAME; when true requests with includesForeignKeyRelated() also qualify (FKs are needed for boundary
+	 * handling regardless of table-metadata need) and each predicate also matches on REFERENCED_TABLE_NAME, so
+	 * a foreign key stays in scope when either of its tables is non-excluded — the same boundary rule as the
+	 * former `TABLE_NAME IN (…) OR REFERENCED_TABLE_NAME IN (…)`. An empty effective exclude means whole
+	 * database.
 	 *
 	 * @param list<SchemaRequest> $requests
-	 * @return array{bool, bool, list<string>} [needed, wholeDatabase, scope]
+	 * @return array{bool, bool, literal-string} [needed, wholeDatabase, predicate]
 	 */
-	private function tableMetaScope(array $requests, bool $includeFkRelated = false): array
+	private function tableMetaScope(array $requests, bool $forForeignKeys): array
 	{
 		$needed = false;
 		$wholeDatabase = false;
-		$names = [];
+		$predicate = '';
 		foreach ($requests as $request) {
-			if (!$request->needsTableMetadata() && !($includeFkRelated && $request->includesForeignKeyRelated())) {
+			if (!$request->needsTableMetadata() && !($forForeignKeys && $request->includesForeignKeyRelated())) {
 				continue;
 			}
 
 			$needed = true;
-			$exclude = $request->getExcludeTables();
-			if ($exclude->isEmpty()) {
+			$effective = $request->getExcludeTables()->merge($this->exclude);
+			$tableCondition = $effective->sqlCondition($this->dbal, 'TABLE_NAME');
+			if ($tableCondition === null) {
 				$wholeDatabase = true;
 
 				continue;
 			}
 
-			$included = [];
-			$excludedAny = false;
-			foreach ($this->getTableNames() as $name) {
-				if ($exclude->matches($name)) {
-					$excludedAny = true;
+			$referencedCondition = $forForeignKeys
+				? $effective->sqlCondition($this->dbal, 'REFERENCED_TABLE_NAME')
+				: null;
+			$condition = $referencedCondition !== null
+				? '(' . $tableCondition . ' OR ' . $referencedCondition . ')'
+				: $tableCondition;
 
-					continue;
-				}
-
-				$included[$name] = true;
+			if ($predicate !== '') {
+				$predicate .= ' OR ';
 			}
 
-			if (!$excludedAny) {
-				$wholeDatabase = true;
-
-				continue;
-			}
-
-			foreach ($included as $name => $isIncluded) {
-				$names[$name] = true;
-			}
+			$predicate .= $condition;
 		}
 
-		return [$needed, $wholeDatabase, array_keys($names)];
+		return [$needed, $wholeDatabase, $predicate];
 	}
 
 	/**
