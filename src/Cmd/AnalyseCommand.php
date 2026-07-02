@@ -130,6 +130,9 @@ final class AnalyseCommand extends Command
 	 */
 	private function generateBaselines(SymfonyStyle $io, array $categories): int
 	{
+		// Validate every target path before writing any file, so `--category=all` with one path missing fails
+		// without leaving a half-written pair of baselines.
+		$targets = [];
 		foreach ($categories as $category) {
 			$path = $this->baselinePathFor($category);
 			if ($path === null) {
@@ -138,6 +141,10 @@ final class AnalyseCommand extends Command
 				return self::FAILURE;
 			}
 
+			$targets[] = [$category, $path];
+		}
+
+		foreach ($targets as [$category, $path]) {
 			$errors = $this->runner->collectErrors($category);
 			Baseline::write($path, $errors);
 			$io->success(sprintf(
