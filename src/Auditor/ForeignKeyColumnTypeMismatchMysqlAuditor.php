@@ -28,7 +28,7 @@ final class ForeignKeyColumnTypeMismatchMysqlAuditor extends ForeignKeyColumnTyp
 		return new SchemaRequest(
 			ColumnCharsetClass::any(),
 			new TableExclude(),
-			false,
+			true,
 			false,
 			true,
 		);

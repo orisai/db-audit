@@ -310,7 +310,7 @@ final class Runner
 		// Change rendering needs the full definition of every changed table, including tables flagged by
 		// data-only auditors that prime no columns of their own; the shared provider is re-primed here with an
 		// unscoped request (the provider's global exclude still applies) so the context is complete.
-		$request = new SchemaRequest(ColumnCharsetClass::any(), null, false, true, true);
+		$request = new SchemaRequest(ColumnCharsetClass::any(), null, true, true, true);
 		$this->schema->primeTablesAndForeignKeys([$request]);
 		$this->schema->primeColumns([$request]);
 		$this->schema->primeStatistics([$request]);
