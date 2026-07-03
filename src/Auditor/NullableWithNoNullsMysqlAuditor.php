@@ -7,42 +7,57 @@ use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use function is_string;
+use function strcmp;
+use function usort;
 
 final class NullableWithNoNullsMysqlAuditor extends NullableWithNoNullsAuditor
 {
 
 	public function analyse(): AnalysisResult
 	{
-		$this->createProcedure();
+		$profiler = $this->schema->getDataProfiler();
+		$db = $this->schema->getDatabaseDefault()['name'];
+		$columnsByTable = $this->schema->getColumnsByTable();
 
-		try {
-			$records = $this->getRecords();
-		} finally {
-			$this->cleanup();
-		}
+		$entries = [];
+		foreach ($this->schema->getTables() as $tableRow) {
+			$table = $tableRow['TABLE_NAME'];
 
-		$details = [];
-		foreach ($this->getNullableColumns() as $column) {
-			$table = $column['TABLE_NAME'] ?? null;
-			$name = $column['COLUMN_NAME'] ?? null;
-			if (is_string($table) && is_string($name)) {
-				$details[$table . "\0" . $name] = $column;
+			$profile = null;
+			foreach ($columnsByTable[$table] ?? [] as $column) {
+				if ($column['IS_NULLABLE'] !== 'YES') {
+					continue;
+				}
+
+				$profile ??= $profiler->getProfile($table);
+				if ($profile === null || $profile['rowCount'] === 0) {
+					break;
+				}
+
+				$name = $column['COLUMN_NAME'];
+				if ($profile['nonNull'][$name] !== $profile['rowCount']) {
+					continue;
+				}
+
+				$entries[] = [$table, $name, $column];
 			}
 		}
 
-		$violations = [];
-		foreach ($records as $record) {
-			$source = new ColumnViolationSource(
-				$record['TABLE_SCHEMA'],
-				null,
-				$record['TABLE_NAME'],
-				$record['COLUMN_NAME'],
-			);
+		usort(
+			$entries,
+			static function (array $a, array $b): int {
+				if ($a[0] !== $b[0]) {
+					return strcmp($a[0], $b[0]);
+				}
 
-			$detail = $details[$record['TABLE_NAME'] . "\0" . $record['COLUMN_NAME']] ?? null;
-			$change = $detail === null
-				? null
-				: $this->planFix($record['TABLE_SCHEMA'], $record['TABLE_NAME'], $record['COLUMN_NAME'], $detail);
+				return strcmp($a[1], $b[1]);
+			},
+		);
+
+		$violations = [];
+		foreach ($entries as [$table, $name, $column]) {
+			$source = new ColumnViolationSource($db, null, $table, $name);
+			$change = $this->planFix($db, $table, $name, $column);
 
 			$violations[] = new Violation(
 				'nullable_with_no_nulls',
@@ -80,143 +95,6 @@ final class NullableWithNoNullsMysqlAuditor extends NullableWithNoNullsAuditor
 		}
 
 		return ColumnTargetChange::forColumn($database, $table, $column)->setNullable(false);
-	}
-
-	/**
-	 * @return list<array<string, mixed>>
-	 */
-	private function getNullableColumns(): array
-	{
-		return $this->dbal->query(
-		/** @lang MySQL */
-			<<<'SQL'
-SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, CHARACTER_SET_NAME, COLLATION_NAME, COLUMN_DEFAULT, EXTRA
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = DATABASE() AND IS_NULLABLE = 'YES'
-SQL,
-		);
-	}
-
-	private function createProcedure(): void
-	{
-		// A run killed before cleanup() leaves the procedure behind; drop it first so CREATE never collides.
-		$this->dbal->exec(
-		/** @lang MySQL */
-			'DROP PROCEDURE IF EXISTS OrisaiDbAudit_FindNonNullableColumns;',
-		);
-
-		$this->dbal->exec(
-		/** @lang MySQL */
-			<<<'SQL'
-CREATE PROCEDURE OrisaiDbAudit_FindNonNullableColumns()
-BEGIN
-	DECLARE fetched_table_schema VARCHAR(64) CHARACTER SET utf8mb4;
-	DECLARE fetched_table_name VARCHAR(64) CHARACTER SET utf8mb4;
-	DECLARE fetched_column_name VARCHAR(64) CHARACTER SET utf8mb4;
-	DECLARE fetched_column_type VARCHAR(64) CHARACTER SET utf8mb4;
-
-	DECLARE done INT DEFAULT 0;
-
-	DECLARE cur CURSOR FOR
-		SELECT c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME, c.COLUMN_TYPE
-		FROM INFORMATION_SCHEMA.COLUMNS c
-		JOIN INFORMATION_SCHEMA.TABLES t
-			ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
-		WHERE c.TABLE_SCHEMA = DATABASE()
-			AND t.TABLE_TYPE = 'BASE TABLE'
-			AND c.IS_NULLABLE = 'YES'
-		ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME;
-
-	DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = 1;
-
-	-- Create the temporary table
-	DROP TEMPORARY TABLE IF EXISTS OrisaiDbAudit_nullable_with_no_nulls;
-	CREATE TEMPORARY TABLE OrisaiDbAudit_nullable_with_no_nulls (
-		TABLE_SCHEMA VARCHAR(64) NOT NULL,
-		TABLE_NAME VARCHAR(64) NOT NULL,
-		COLUMN_NAME VARCHAR(64) NOT NULL,
-		COLUMN_TYPE VARCHAR(64) NOT NULL
-	) CHARACTER SET utf8mb4;
-
-	OPEN cur;
-
-	read_loop: LOOP
-		FETCH cur INTO fetched_table_schema, fetched_table_name, fetched_column_name, fetched_column_type;
-		IF done THEN
-			LEAVE read_loop;
-		END IF;
-
-		-- Identifiers are backtick-quoted with embedded backticks doubled so quote-containing names do not break
-		-- the dynamic SQL.
-		SET @empty_table_query = CONCAT(
-			'SELECT IF(COUNT(*) = 0, 1, 0) INTO @table_is_empty FROM `',
-			REPLACE(fetched_table_schema, '`', '``'), '`.`', REPLACE(fetched_table_name, '`', '``'),
-			'` LIMIT 1'
-		);
-		PREPARE stmt FROM @empty_table_query;
-		EXECUTE stmt;
-		DEALLOCATE PREPARE stmt;
-
-		-- Skip this table as it is empty
-		IF @table_is_empty = 1 THEN
-			ITERATE read_loop;
-		END IF;
-
-		-- Check if the column contains null values
-		SET @checkColumnQuery = CONCAT(
-			'SELECT IF(COUNT(*) = 0, 1, 0) INTO @nullNotFound FROM `',
-			REPLACE(fetched_table_schema, '`', '``'), '`.`', REPLACE(fetched_table_name, '`', '``'),
-			'` WHERE `', REPLACE(fetched_column_name, '`', '``'), '` IS NULL LIMIT 1'
-		);
-		PREPARE stmt FROM @checkColumnQuery;
-		EXECUTE stmt;
-		DEALLOCATE PREPARE stmt;
-
-		-- Insert the column information into the temporary table if no null values are found
-		IF @nullNotFound = 1 THEN
-			INSERT INTO OrisaiDbAudit_nullable_with_no_nulls (TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, COLUMN_TYPE)
-			VALUES (fetched_table_schema, fetched_table_name, fetched_column_name, fetched_column_type);
-		END IF;
-	END LOOP read_loop;
-
-	CLOSE cur;
-END;
-SQL,
-		);
-	}
-
-	private function cleanup(): void
-	{
-		$this->dbal->exec(
-		/** @lang MySQL */
-			'DROP PROCEDURE IF EXISTS OrisaiDbAudit_FindNonNullableColumns;',
-		);
-
-		$this->dbal->exec(
-		/** @lang MySQL */
-			'DROP TEMPORARY TABLE IF EXISTS OrisaiDbAudit_nullable_with_no_nulls;',
-		);
-	}
-
-	/**
-	 * @return list<array{
-	 *     TABLE_SCHEMA: string,
-	 *     TABLE_NAME: string,
-	 *     COLUMN_NAME: string,
-	 *     COLUMN_TYPE: string,
-	 * }>
-	 */
-	private function getRecords(): array
-	{
-		$this->dbal->exec(
-		/** @lang MySQL */
-			'CALL OrisaiDbAudit_FindNonNullableColumns();',
-		);
-
-		return $this->dbal->query(
-		/** @lang MySQL */
-			'SELECT * FROM OrisaiDbAudit_nullable_with_no_nulls ORDER BY TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME',
-		);
 	}
 
 }

@@ -10,7 +10,9 @@ use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Runner\Runner;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -47,7 +49,7 @@ final class NullableWithNoNullsAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -119,7 +121,7 @@ SQL,
 		// The exact MODIFY definition (display widths, default charset) differs between MySQL and MariaDB, so
 		// assert the stable fields and that each simple column is fixable with a column change; the generated SQL
 		// is verified by applying it in testGeneratesAndAppliesNotNull().
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		$expected = [
 			['another_no_nulls', 'c'],
 			['another_no_nulls', 'd'],
@@ -144,7 +146,22 @@ SQL,
 			self::assertSame($column, $change->getColumn());
 		}
 
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
+
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE TABLE `excluded_1` (`a` int NULL)',
+		);
+		$dbal->exec(
+		/** @lang MySQL */
+			'INSERT INTO `excluded_1` (`a`) VALUES (1)',
+		);
+
+		$excludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$excludingAuditor = new NullableWithNoNullsMysqlAuditor($excludingSchema);
+		foreach (AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations() as $violation) {
+			self::assertStringNotContainsString('excluded_1', $violation->getMessage());
+		}
 	}
 
 	/**
@@ -253,7 +270,7 @@ SQL,
 		// "nullable but contains no nulls" would be a false positive, so empty tables are skipped.
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `empty` (`a` int NULL, `b` text NULL)');
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }
