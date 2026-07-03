@@ -2,6 +2,7 @@
 
 namespace Orisai\DbAudit\Schema;
 
+use Orisai\DbAudit\Data\TableDataProfiler;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use function array_keys;
 
@@ -69,6 +70,8 @@ final class SchemaProvider
 	/** @var list<array<string, mixed>>|null */
 	private ?array $events = null;
 
+	private ?TableDataProfiler $dataProfiler = null;
+
 	public function __construct(DbalAdapter $dbal, ?TableExclude $exclude = null)
 	{
 		$this->dbal = $dbal;
@@ -78,6 +81,20 @@ final class SchemaProvider
 	public function getDbal(): DbalAdapter
 	{
 		return $this->dbal;
+	}
+
+	public function getDataProfiler(): TableDataProfiler
+	{
+		if ($this->dataProfiler === null) {
+			$this->dataProfiler = new TableDataProfiler($this);
+		}
+
+		return $this->dataProfiler;
+	}
+
+	public function getExclude(): TableExclude
+	{
+		return $this->exclude;
 	}
 
 	/**
@@ -193,6 +210,10 @@ SQL,
 	{
 		$this->columns = $this->fetchColumns($requests);
 		$this->columnsByTable = null;
+
+		if ($this->dataProfiler !== null) {
+			$this->dataProfiler->reset();
+		}
 	}
 
 	/**

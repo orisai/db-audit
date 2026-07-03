@@ -38,6 +38,10 @@ parameters:
 		-
 			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-falsy-string\\.$#"
 			path: ../src/Auditor/Latin1EncodingMysqlAuditor.php
+		# The per-table profiling scan interpolates escapeIdentifier()-quoted names, so the assembled SQL is asserted literal for replay
+		-
+			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-falsy-string\\.$#"
+			path: ../src/Data/TableDataProfiler.php
 		# Migration SQL is split into statements then asserted as literal for replay in the round-trip test
 		-
 			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-empty-string\\.$#"
