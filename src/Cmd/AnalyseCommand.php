@@ -412,7 +412,7 @@ final class AnalyseCommand extends Command
 		$text = $this->bracketize($text, 'yellow');
 		$text = preg_replace('#`[^`]*`#', '<fg=yellow>$0</>', $text) ?? $text;
 
-		return preg_replace("#'[^']*'#", '<fg=blue>$0</>', $text) ?? $text;
+		return preg_replace("#'[^']*'#", '<fg=bright-blue>$0</>', $text) ?? $text;
 	}
 
 	private function highlightHint(string $text): string
@@ -420,7 +420,7 @@ final class AnalyseCommand extends Command
 		// Hints stay white; only identifiers (yellow) and the runnable command (blue) are highlighted.
 		$text = $this->bracketize($text, 'yellow');
 
-		return preg_replace('#db-audit:\S+(?:\s+--\S+)*#', '<fg=blue>$0</>', $text) ?? $text;
+		return preg_replace('#db-audit:\S+(?:\s+--\S+)*#', '<fg=bright-blue>$0</>', $text) ?? $text;
 	}
 
 	/**
