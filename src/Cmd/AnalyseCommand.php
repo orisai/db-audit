@@ -304,14 +304,11 @@ final class AnalyseCommand extends Command
 
 			$body = [];
 			foreach ($findings as $violation) {
-				$body[] = '  ' . $this->highlight($violation->getMessage());
+				// A left emoji gutter (🔧 when fixable, blank otherwise) keeps message/🪪/💡 text aligned.
+				$fix = $violation->isFixable() ? '🔧' : '  ';
+				$body[] = '  ' . $fix . '  ' . $this->highlight($violation->getMessage());
 
-				$identifier = '  <fg=white>🪪  ' . $violation->getKey() . '</>';
-				if ($violation->isFixable()) {
-					$identifier .= ' 🔧';
-				}
-
-				$body[] = $identifier;
+				$body[] = '  <fg=white>🪪  ' . $violation->getKey() . '</>';
 
 				if ($violation->getHint() !== null) {
 					$body[] = '  💡  ' . $this->highlightHint($violation->getHint());
