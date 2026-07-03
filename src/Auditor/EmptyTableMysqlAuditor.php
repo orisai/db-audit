@@ -16,6 +16,10 @@ final class EmptyTableMysqlAuditor extends EmptyTableAuditor
 		$violations = [];
 		foreach ($this->schema->getTables() as $tableRow) {
 			$table = $tableRow['TABLE_NAME'];
+			if ($this->schema->getExclude()->matches($table)) {
+				continue;
+			}
+
 			if (!$this->isTableEmpty($db, $table)) {
 				continue;
 			}

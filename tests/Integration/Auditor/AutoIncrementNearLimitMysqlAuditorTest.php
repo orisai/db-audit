@@ -5,7 +5,6 @@ namespace Tests\Orisai\DbAudit\Integration\Auditor;
 use Generator;
 use Orisai\DbAudit\Auditor\AutoIncrementNearLimitMysqlAuditor;
 use Orisai\DbAudit\Dbal\DbalAdapter;
-use Orisai\DbAudit\Dbal\NextrasAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
@@ -256,10 +255,12 @@ SQL,
 		// Values above threshold
 		// //////
 
-		// medium/regular/big need a wider margin above 90% than tiny/small: the percentage is computed in
-		// PHP float, and a value only 1 unit past the cutoff can round-trip through float64 as equal to (or
-		// even below) the below-threshold value once the columns exceed a few million, so a razor-thin margin
-		// no longer reliably crosses the threshold the way exact-decimal SQL division did.
+		// The old SQL computed the percentage via DECIMAL(65,0) division, which MySQL/MariaDB round to scale 4
+		// (div_precision_increment), so the old code already flagged values up to ~0.005 percentage points
+		// below the nominal threshold; the new exact float division only flags at or above the threshold
+		// itself, so medium/regular/big need a value that actually reaches it. The bigint pair additionally
+		// needs its own margin because float64 granularity (ULP = 1024 at ~8.3e18) can round a value just past
+		// the cutoff to the same float64 as the below-threshold one.
 		$dbal->exec(
 		/** @lang MySQL */
 			<<<'SQL'
@@ -358,13 +359,10 @@ SQL,
 		// COLUMN_TYPE into the violation, so the expected type string is engine-specific.
 		// big_unsigned: MySQL's INFORMATION_SCHEMA.TABLES.AUTO_INCREMENT is a signed BIGINT that saturates at
 		// 9223372036854775807, so the BIGINT UNSIGNED reads as 50% and is never flagged there. MariaDB reports
-		// the true value, but Nextras\Dbal's mysqli result normalizer casts BIGINT UNSIGNED columns with a
-		// plain (int), which PHP saturates to PHP_INT_MAX for a value beyond that range — so on MariaDB the
-		// true value only survives through an adapter (dibi) that keeps it as a string.
-		$nextras = $dbal instanceof NextrasAdapter;
+		// the true value.
 		$columns = [
 			['big', 'bigint', 'bigint(20)'],
-			['big_unsigned', null, $nextras ? null : 'bigint(20) unsigned'],
+			['big_unsigned', null, 'bigint(20) unsigned'],
 			['medium', 'mediumint', 'mediumint(9)'],
 			['medium_unsigned', 'mediumint unsigned', 'mediumint(8) unsigned'],
 			['regular', 'int', 'int(11)'],
@@ -430,9 +428,7 @@ SQL,
 
 		// BIGINT UNSIGNED auto_increment near its limit. MariaDB reports the true value; MySQL's
 		// INFORMATION_SCHEMA.TABLES.AUTO_INCREMENT is a signed BIGINT that saturates at 9223372036854775807,
-		// so the same column reads as 50% there and cannot be detected. On MariaDB, the true value only
-		// survives through an adapter (dibi) that keeps it as a string — Nextras\Dbal's mysqli result
-		// normalizer casts BIGINT UNSIGNED with a plain (int), which PHP saturates to PHP_INT_MAX.
+		// so the same column reads as 50% there and cannot be detected.
 		$dbal->exec(
 		/** @lang MySQL */
 			'CREATE TABLE `big_unsigned` (`id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY)',
@@ -447,7 +443,7 @@ SQL,
 		$dbal->exec('FLUSH TABLES;');
 
 		$expected = [];
-		if ($engine->value === 'mariadb' && !($dbal instanceof NextrasAdapter)) {
+		if ($engine->value === 'mariadb') {
 			$expected[] = new Violation(
 				$key,
 				"Autoincrement is above threshold of 90% in [big_unsigned][id] (Column type: 'bigint(20) unsigned')",

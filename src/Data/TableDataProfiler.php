@@ -124,7 +124,7 @@ final class TableDataProfiler
 		];
 
 		foreach ($nonNullPlan as $name => $alias) {
-			// SUM()/COUNT() over zero rows is NULL — an empty table means a zero count for every metric
+			// SUM() over zero rows is NULL — an empty table means a zero count for every metric
 			$profile['nonNull'][$name] = $alias === null ? $profile['rowCount'] : (int) ($row[$alias] ?? 0);
 		}
 

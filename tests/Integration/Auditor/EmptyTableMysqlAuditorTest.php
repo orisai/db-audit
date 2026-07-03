@@ -179,6 +179,20 @@ SQL,
 				new TableViolationSource($db, null, 'kept'),
 			),
 		], AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations());
+
+		// A direct, unprimed analyse() must honor the exclude too: getTables() then takes the lazy
+		// whole-database fallback instead of a coordinator-primed, already-filtered listing. A fresh provider
+		// is used so no prior priming from the assertion above can mask a missing guard.
+		$freshExcludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$freshExcludingAuditor = new EmptyTableMysqlAuditor($freshExcludingSchema);
+
+		self::assertEquals([
+			new Violation(
+				$key,
+				'Table [kept] is empty.',
+				new TableViolationSource($db, null, 'kept'),
+			),
+		], $freshExcludingAuditor->analyse()->getViolations());
 	}
 
 }

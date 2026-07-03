@@ -15,3 +15,4 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   - honor the `SchemaProvider` table exclude
   - share a single profiling scan per table instead of per-column stored-procedure scans — orders of magnitude faster on large or many-table databases
   - no longer require `CREATE ROUTINE` / `CREATE TEMPORARY TABLES` privileges
+  - upgrade note: a run of a previous version that aborted mid-scan may have left `OrisaiDbAudit_*` stored procedures behind; drop them manually (`DROP PROCEDURE IF EXISTS OrisaiDbAudit_...`) — new versions no longer create any

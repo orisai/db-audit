@@ -122,8 +122,9 @@ Auditors are grouped by **importance** first. **Functional** auditors flag corre
 problems — broken referential integrity, data loss, invalid values, imminent outages — and should be triaged and fixed
 **before** the **stylistic** ones, which flag naming, convention and schema-hygiene issues that rarely cause incorrect
 behavior on their own. A secondary **Type** column marks whether an auditor only reads schema metadata
-(*Structure* — `INFORMATION_SCHEMA`, no row scanning) or scans table rows (*Data* — row-scanning auditors share one
-profiling scan per table).
+(*Structure* — `INFORMATION_SCHEMA`, no row scanning) or scans table rows (*Data* — column-data auditors share one
+profiling scan per table; `EmptyTable` uses a single-row probe per table; `AutoIncrementNearLimit` reads only
+`INFORMATION_SCHEMA` metadata, no rows).
 
 ### Functional auditors
 
