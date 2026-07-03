@@ -109,9 +109,10 @@ want to audit.
 
 ## Auditors
 
-All auditors live in `Orisai\DbAudit\Auditor`, are constructed with a [`DbalAdapter`](../src/Dbal/DbalAdapter.php), and
-work on **MySQL 8.0+ and MariaDB 10.11+**. Each declares its category (`getCategory()`) and the databases it supports
-(`getSupportedDatabases()`), and reports `Violation`s through `analyse()`. Every distinct finding carries a stable
+All auditors live in `Orisai\DbAudit\Auditor`, are constructed with a
+[`Schema\SchemaProvider`](../src/Schema/SchemaProvider.php), and work on **MySQL 8.0+ and MariaDB 10.11+**. Each
+declares its category (`getCategory()`) and the databases it supports (`getSupportedDatabases()`), and reports
+`Violation`s through `analyse()`. Every distinct finding carries a stable
 **identifier** (`Violation::getKey()`, e.g. `outdated_collation.utf8mb3`) used for ignoring and baselines — see
 [Running auditors](#running-auditors). Two of them have dedicated sections below:
 [outdated collation](#outdated-collation-migration) (produces migration SQL via the `Runner`) and
@@ -121,8 +122,8 @@ Auditors are grouped by **importance** first. **Functional** auditors flag corre
 problems — broken referential integrity, data loss, invalid values, imminent outages — and should be triaged and fixed
 **before** the **stylistic** ones, which flag naming, convention and schema-hygiene issues that rarely cause incorrect
 behavior on their own. A secondary **Type** column marks whether an auditor only reads schema metadata
-(*Structure* — `INFORMATION_SCHEMA`, no row scanning) or scans table rows (*Data* — some build a temporary stored
-procedure that is always cleaned up).
+(*Structure* — `INFORMATION_SCHEMA`, no row scanning) or scans table rows (*Data* — row-scanning auditors share one
+profiling scan per table).
 
 ### Functional auditors
 
