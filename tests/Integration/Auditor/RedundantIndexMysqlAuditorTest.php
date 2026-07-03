@@ -72,10 +72,10 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 		self::assertEquals([
 			new Violation(
 				$key,
-				"Index 'idx_a_dup' on table [dup] is redundant: its columns are a prefix of index 'idx_a'.",
+				'Index [idx_a_dup] on table [dup] is redundant: its columns are a prefix of index [idx_a].',
 				new TableViolationSource($db, null, 'dup'),
 				true,
-				"Drop the redundant index 'idx_a_dup'.",
+				'Drop the redundant index [idx_a_dup].',
 				[new DropIndexChange($db, 'dup', 'idx_a_dup')],
 			),
 		], AuditorRunner::analyse($schema, $auditor)->getViolations());
@@ -104,10 +104,10 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 		self::assertEquals([
 			new Violation(
 				$key,
-				"Index 'idx_a' on table [pref] is redundant: its columns are a prefix of index 'idx_ab'.",
+				'Index [idx_a] on table [pref] is redundant: its columns are a prefix of index [idx_ab].',
 				new TableViolationSource($db, null, 'pref'),
 				true,
-				"Drop the redundant index 'idx_a'.",
+				'Drop the redundant index [idx_a].',
 				[new DropIndexChange($db, 'pref', 'idx_a')],
 			),
 		], AuditorRunner::analyse($schema, $auditor)->getViolations());
@@ -138,10 +138,10 @@ final class RedundantIndexMysqlAuditorTest extends TestCase
 		self::assertEquals([
 			new Violation(
 				$key,
-				"Index 'idx_z' on table [cov] is redundant: its columns are a prefix of index 'idx_ab'.",
+				'Index [idx_z] on table [cov] is redundant: its columns are a prefix of index [idx_ab].',
 				new TableViolationSource($db, null, 'cov'),
 				true,
-				"Drop the redundant index 'idx_z'.",
+				'Drop the redundant index [idx_z].',
 				[new DropIndexChange($db, 'cov', 'idx_z')],
 			),
 		], AuditorRunner::analyse($schema, $auditor)->getViolations());

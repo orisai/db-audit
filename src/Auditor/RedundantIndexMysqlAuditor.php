@@ -66,11 +66,11 @@ final class RedundantIndexMysqlAuditor extends RedundantIndexAuditor
 				$source = new TableViolationSource($db, null, $tableName);
 				$violations[] = new Violation(
 					'redundant_index',
-					"Index '" . $name . "' on table " . $source->toString()
-					. " is redundant: its columns are a prefix of index '" . $covering . "'.",
+					'Index [' . $name . '] on table ' . $source->toString()
+					. ' is redundant: its columns are a prefix of index [' . $covering . '].',
 					$source,
 					true,
-					"Drop the redundant index '" . $name . "'.",
+					'Drop the redundant index [' . $name . '].',
 					[new DropIndexChange($db, $tableName, $name)],
 				);
 			}

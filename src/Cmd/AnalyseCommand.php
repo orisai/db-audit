@@ -390,7 +390,9 @@ final class AnalyseCommand extends Command
 
 	private function highlightHint(string $text): string
 	{
-		// Hints stay white; only the runnable command is highlighted, in blue.
+		// Hints stay white; only identifiers (yellow) and the runnable command (blue) are highlighted.
+		$text = $this->bracketize($text, 'yellow');
+
 		return preg_replace('#db-audit:\S+(?:\s+--\S+)*#', '<fg=blue>$0</>', $text) ?? $text;
 	}
 
