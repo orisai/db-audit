@@ -5,10 +5,14 @@ namespace Orisai\DbAudit\Cmd;
 use Orisai\DbAudit\AnalyserCategory;
 use Orisai\DbAudit\Ignore\Baseline;
 use Orisai\DbAudit\Ignore\IgnoredError;
+use Orisai\DbAudit\Report\ColumnViolationSource;
+use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Report\Warning;
 use Orisai\DbAudit\Runner\Runner;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Helper\Table;
+use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -20,6 +24,7 @@ use function implode;
 use function is_file;
 use function memory_get_peak_usage;
 use function microtime;
+use function preg_replace_callback;
 use function sprintf;
 
 final class AnalyseCommand extends Command
@@ -281,23 +286,88 @@ final class AnalyseCommand extends Command
 	 */
 	private function renderFindings(SymfonyStyle $io, array $errors): void
 	{
+		if ($errors === []) {
+			return;
+		}
+
+		// Group by source (its table), like PHPStan groups findings by file.
+		$groups = [];
 		foreach ($errors as $violation) {
-			$io->writeln(sprintf('<fg=red>✕</> %s', $violation->getMessage()));
+			[$location, $column] = $this->locate($violation);
+			$groups[$location][] = [$column, $violation];
+		}
 
-			$identifierLine = sprintf('<fg=gray>identifier: %s</>', $violation->getKey());
-			if ($violation->isFixable()) {
-				$identifierLine .= ' <fg=yellow>(fixable)</>';
+		foreach ($groups as $location => $findings) {
+			$table = new Table($io);
+			$table->setHeaders(['', '<fg=green>' . $location . '</>']);
+
+			$last = count($findings) - 1;
+			foreach ($findings as $i => [$column, $violation]) {
+				$table->addRow([$column, $this->highlight($violation->getMessage())]);
+
+				$identifier = '<fg=gray>🪪  ' . $violation->getKey() . '</>';
+				if ($violation->isFixable()) {
+					$identifier .= ' <fg=yellow>(fixable)</>';
+				}
+
+				$table->addRow(['', $identifier]);
+
+				if ($violation->getHint() !== null) {
+					$table->addRow(['', '<fg=gray>💡  ' . $violation->getHint() . '</>']);
+				}
+
+				if ($i !== $last) {
+					$table->addRow(new TableSeparator());
+				}
 			}
 
-			$io->writeln('  ' . $identifierLine);
-			$io->writeln(sprintf('  <fg=gray>source: %s</>', $violation->getSource()->toString()));
-
-			if ($violation->getHint() !== null) {
-				$io->writeln(sprintf('  <fg=gray>hint: %s</>', $violation->getHint()));
-			}
-
+			$table->render();
 			$io->newLine();
 		}
+	}
+
+	/**
+	 * @return array{0: string, 1: string}
+	 */
+	private function locate(Violation $violation): array
+	{
+		$source = $violation->getSource();
+
+		if ($source instanceof ColumnViolationSource) {
+			return [$source->getTable(), $source->getColumn()];
+		}
+
+		if ($source instanceof TableViolationSource) {
+			return [$source->getTable(), ''];
+		}
+
+		return [$source->toString(), ''];
+	}
+
+	private function highlight(string $message): string
+	{
+		$highlighted = preg_replace_callback(
+			'#(\[[^\]]*\])'
+			. '|(`[^`]*`)'
+			. '|((?:utf8mb4|utf8mb3|utf8|latin1|latin2|cp1250|ascii|binary|gbk|big5|sjis|ucs2|utf16|utf32)[a-z0-9_]*)'
+			. '|((?:var)?char\(\d+\)|(?:tiny|small|medium|big)?int(?:\(\d+\))?(?: unsigned)?|decimal(?:\([\d, ]+\))?'
+			. '|float|double|bit|datetime(?:\(\d+\))?|timestamp(?:\(\d+\))?|date|time|year'
+			. '|(?:tiny|medium|long)?text|(?:tiny|medium|long)?blob|json|enum\([^)]*\)|set\([^)]*\))#i',
+			static function (array $m): string {
+				if ($m[1] !== '') {
+					return '<fg=cyan>' . $m[1] . '</>';
+				}
+
+				if ($m[2] !== '') {
+					return '<fg=yellow>' . $m[2] . '</>';
+				}
+
+				return '<fg=magenta>' . $m[0] . '</>';
+			},
+			$message,
+		);
+
+		return $highlighted ?? $message;
 	}
 
 	/**

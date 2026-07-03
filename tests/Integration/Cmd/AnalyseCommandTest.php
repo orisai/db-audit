@@ -86,7 +86,8 @@ final class AnalyseCommandTest extends TestCase
 		self::assertSame(Command::FAILURE, $tester->getStatusCode());
 		$display = $tester->getDisplay();
 		self::assertStringContainsString('has no primary key', $display);
-		self::assertStringContainsString('identifier: missing_primary_key', $display);
+		self::assertStringContainsString('🪪  missing_primary_key', $display);
+		self::assertStringNotContainsString('identifier:', $display);
 		self::assertStringContainsString('Identifier', $display);
 		self::assertStringContainsString('Found 1 error', $display);
 		self::assertMatchesRegularExpression('~Time: \d+\.\d\ds~', $display);
