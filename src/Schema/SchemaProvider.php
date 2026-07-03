@@ -127,7 +127,7 @@ SQL,
 	}
 
 	/**
-	 * @return list<array{TABLE_NAME: string, ENGINE: string|null, ROW_FORMAT: string|null, TABLE_COLLATION: string|null}>
+	 * @return list<array{TABLE_NAME: string, ENGINE: string|null, ROW_FORMAT: string|null, TABLE_COLLATION: string|null, AUTO_INCREMENT: int|string|null}>
 	 */
 	public function getTables(): array
 	{
@@ -187,7 +187,7 @@ SQL,
 	 */
 	private function fetchTables(?string $predicate): array
 	{
-		$tablesSelect = 'SELECT TABLE_NAME, ENGINE, ROW_FORMAT, TABLE_COLLATION'
+		$tablesSelect = 'SELECT TABLE_NAME, ENGINE, ROW_FORMAT, TABLE_COLLATION, AUTO_INCREMENT'
 			. ' FROM INFORMATION_SCHEMA.TABLES'
 			. " WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'";
 		$tablesOrder = ' ORDER BY TABLE_NAME';

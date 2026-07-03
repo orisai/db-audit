@@ -11,17 +11,16 @@ final class EmptyTableMysqlAuditor extends EmptyTableAuditor
 
 	public function analyse(): AnalysisResult
 	{
+		$db = $this->schema->getDatabaseDefault()['name'];
+
 		$violations = [];
-		foreach ($this->getRecords() as $record) {
-			if (!$this->isTableEmpty($record['TABLE_SCHEMA'], $record['TABLE_NAME'])) {
+		foreach ($this->schema->getTables() as $tableRow) {
+			$table = $tableRow['TABLE_NAME'];
+			if (!$this->isTableEmpty($db, $table)) {
 				continue;
 			}
 
-			$source = new TableViolationSource(
-				$record['TABLE_SCHEMA'],
-				null,
-				$record['TABLE_NAME'],
-			);
+			$source = new TableViolationSource($db, null, $table);
 
 			$violations[] = new Violation(
 				'empty_table',
@@ -42,30 +41,6 @@ final class EmptyTableMysqlAuditor extends EmptyTableAuditor
 		// INFORMATION_SCHEMA.TABLES.TABLE_ROWS is only an InnoDB estimate (and is cached for up to a day on
 		// MySQL), so a non-empty table can report 0; probe each table for an actual row instead.
 		return $this->dbal->query('SELECT 1 FROM ' . $tableId . ' LIMIT 1') === [];
-	}
-
-	/**
-	 * @return list<array{
-	 *     TABLE_SCHEMA: string,
-	 *     TABLE_NAME: string,
-	 * }>
-	 */
-	private function getRecords(): array
-	{
-		return $this->dbal->query(
-		/** @lang MySQL */
-			<<<'SQL'
-SELECT
-	TABLE_SCHEMA,
-	TABLE_NAME
-FROM
-	INFORMATION_SCHEMA.TABLES
-WHERE
-	TABLE_SCHEMA = DATABASE()
-	AND TABLE_TYPE = 'BASE TABLE'
-ORDER BY TABLE_SCHEMA, TABLE_NAME;
-SQL,
-		);
 	}
 
 }

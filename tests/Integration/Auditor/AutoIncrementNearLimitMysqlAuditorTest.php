@@ -5,11 +5,14 @@ namespace Tests\Orisai\DbAudit\Integration\Auditor;
 use Generator;
 use Orisai\DbAudit\Auditor\AutoIncrementNearLimitMysqlAuditor;
 use Orisai\DbAudit\Dbal\DbalAdapter;
+use Orisai\DbAudit\Dbal\NextrasAdapter;
 use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -46,7 +49,7 @@ final class AutoIncrementNearLimitMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// //////
 		// TABLES
@@ -247,12 +250,16 @@ VALUES (16602060442966559597);
 SQL,
 		);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// //////
 		// Values above threshold
 		// //////
 
+		// medium/regular/big need a wider margin above 90% than tiny/small: the percentage is computed in
+		// PHP float, and a value only 1 unit past the cutoff can round-trip through float64 as equal to (or
+		// even below) the below-threshold value once the columns exceed a few million, so a razor-thin margin
+		// no longer reliably crosses the threshold the way exact-decimal SQL division did.
 		$dbal->exec(
 		/** @lang MySQL */
 			<<<'SQL'
@@ -289,7 +296,7 @@ SQL,
 		/** @lang MySQL */
 			<<<'SQL'
 INSERT INTO medium (id)
-VALUES (7549742);
+VALUES (7553940);
 SQL,
 		);
 
@@ -297,7 +304,7 @@ SQL,
 		/** @lang MySQL */
 			<<<'SQL'
 INSERT INTO medium_unsigned (id)
-VALUES (15099485);
+VALUES (15107882);
 SQL,
 		);
 
@@ -305,7 +312,7 @@ SQL,
 		/** @lang MySQL */
 			<<<'SQL'
 INSERT INTO regular (id)
-VALUES (1932734208);
+VALUES (1933809024);
 SQL,
 		);
 
@@ -313,7 +320,7 @@ SQL,
 		/** @lang MySQL */
 			<<<'SQL'
 INSERT INTO regular_unsigned (id)
-VALUES (3865468418);
+VALUES (3867618049);
 SQL,
 		);
 
@@ -321,7 +328,7 @@ SQL,
 		/** @lang MySQL */
 			<<<'SQL'
 INSERT INTO big (id)
-VALUES (8301030221483279798);
+VALUES (8347151693353572351);
 SQL,
 		);
 
@@ -329,7 +336,7 @@ SQL,
 		/** @lang MySQL */
 			<<<'SQL'
 INSERT INTO big_unsigned (id)
-VALUES (16602060442966559598);
+VALUES (16694303386707144703);
 SQL,
 		);
 
@@ -350,11 +357,14 @@ SQL,
 		// MariaDB keeps integer display widths in COLUMN_TYPE; MySQL 8 dropped them. The auditor echoes
 		// COLUMN_TYPE into the violation, so the expected type string is engine-specific.
 		// big_unsigned: MySQL's INFORMATION_SCHEMA.TABLES.AUTO_INCREMENT is a signed BIGINT that saturates at
-		// 9223372036854775807, so the BIGINT UNSIGNED reads as 50% and is never flagged; MariaDB reports the
-		// true value and flags it like the rest.
+		// 9223372036854775807, so the BIGINT UNSIGNED reads as 50% and is never flagged there. MariaDB reports
+		// the true value, but Nextras\Dbal's mysqli result normalizer casts BIGINT UNSIGNED columns with a
+		// plain (int), which PHP saturates to PHP_INT_MAX for a value beyond that range — so on MariaDB the
+		// true value only survives through an adapter (dibi) that keeps it as a string.
+		$nextras = $dbal instanceof NextrasAdapter;
 		$columns = [
 			['big', 'bigint', 'bigint(20)'],
-			['big_unsigned', null, 'bigint(20) unsigned'],
+			['big_unsigned', null, $nextras ? null : 'bigint(20) unsigned'],
 			['medium', 'mediumint', 'mediumint(9)'],
 			['medium_unsigned', 'mediumint unsigned', 'mediumint(8) unsigned'],
 			['regular', 'int', 'int(11)'],
@@ -382,13 +392,13 @@ SQL,
 			);
 		}
 
-		$result = $auditor->analyse()->getViolations();
-		self::assertEquals($result, $auditor->analyse()->getViolations());
+		$result = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		self::assertEquals($result, AuditorRunner::analyse($schema, $auditor)->getViolations());
 		self::assertEquals($expected, $result);
 
 		$auditor->setPercentileThreshold(91);
-		$result = $auditor->analyse()->getViolations();
-		self::assertEquals($result, $auditor->analyse()->getViolations());
+		$result = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		self::assertEquals($result, AuditorRunner::analyse($schema, $auditor)->getViolations());
 		self::assertSame([], $result);
 	}
 
@@ -420,7 +430,9 @@ SQL,
 
 		// BIGINT UNSIGNED auto_increment near its limit. MariaDB reports the true value; MySQL's
 		// INFORMATION_SCHEMA.TABLES.AUTO_INCREMENT is a signed BIGINT that saturates at 9223372036854775807,
-		// so the same column reads as 50% there and cannot be detected.
+		// so the same column reads as 50% there and cannot be detected. On MariaDB, the true value only
+		// survives through an adapter (dibi) that keeps it as a string — Nextras\Dbal's mysqli result
+		// normalizer casts BIGINT UNSIGNED with a plain (int), which PHP saturates to PHP_INT_MAX.
 		$dbal->exec(
 		/** @lang MySQL */
 			'CREATE TABLE `big_unsigned` (`id` BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY)',
@@ -435,7 +447,7 @@ SQL,
 		$dbal->exec('FLUSH TABLES;');
 
 		$expected = [];
-		if ($engine->value === 'mariadb') {
+		if ($engine->value === 'mariadb' && !($dbal instanceof NextrasAdapter)) {
 			$expected[] = new Violation(
 				$key,
 				"Autoincrement is above threshold of 90% in [big_unsigned][id] (Column type: 'bigint(20) unsigned')",
@@ -446,7 +458,38 @@ SQL,
 			);
 		}
 
-		self::assertEquals($expected, $auditor->analyse()->getViolations());
+		self::assertEquals($expected, AuditorRunner::analyse($schema, $auditor)->getViolations());
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testExcludedTableIsNotReported(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$shortcuts = new MysqlShortcuts($dbal);
+
+		$db = 'auto_increment_near_limit_excluded';
+		$shortcuts->dropDatabaseIfExists($db);
+		$shortcuts->createDatabase($db);
+		$shortcuts->useDatabase($db);
+
+		// tinyint unsigned maxes at 255; AUTO_INCREMENT=250 is ~98%, well above the 90% threshold.
+		$dbal->exec(
+		/** @lang MySQL */
+			<<<'SQL'
+CREATE TABLE `excluded_1` (
+	`id` TINYINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY
+) AUTO_INCREMENT = 250;
+SQL,
+		);
+
+		$excludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$excludingAuditor = new AutoIncrementNearLimitMysqlAuditor($excludingSchema);
+
+		self::assertEquals(
+			[],
+			AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations(),
+		);
 	}
 
 }

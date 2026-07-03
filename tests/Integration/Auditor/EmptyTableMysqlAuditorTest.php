@@ -9,7 +9,9 @@ use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -46,7 +48,7 @@ final class EmptyTableMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -94,7 +96,7 @@ SQL,
 				'Table [b] is empty.',
 				new TableViolationSource($db, null, 'b'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -138,7 +140,45 @@ SQL,
 				'Table [genuinely_empty] is empty.',
 				new TableViolationSource($db, null, 'genuinely_empty'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
+	}
+
+	/**
+	 * @dataProvider provide
+	 */
+	public function testExcludedTableIsNotReported(DbalAdapter $dbal, DatabaseEngine $engine): void
+	{
+		$shortcuts = new MysqlShortcuts($dbal);
+
+		$key = 'empty_table';
+
+		$db = 'empty_table_excluded';
+		$shortcuts->dropDatabaseIfExists($db);
+		$shortcuts->createDatabase($db);
+		$shortcuts->useDatabase($db);
+
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE TABLE `excluded_1` (`id` int NOT NULL)',
+		);
+
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE TABLE `kept` (`id` int NOT NULL)',
+		);
+
+		// An excluded table is empty too, but the provider's exclude must reach the table listing so it is
+		// never probed nor reported.
+		$excludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$excludingAuditor = new EmptyTableMysqlAuditor($excludingSchema);
+
+		self::assertEquals([
+			new Violation(
+				$key,
+				'Table [kept] is empty.',
+				new TableViolationSource($db, null, 'kept'),
+			),
+		], AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations());
 	}
 
 }

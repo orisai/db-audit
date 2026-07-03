@@ -5,9 +5,26 @@ namespace Orisai\DbAudit\Auditor;
 use Orisai\DbAudit\Report\AnalysisResult;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
+use function stripos;
+use function strtolower;
 
 final class AutoIncrementNearLimitMysqlAuditor extends AutoIncrementNearLimitAuditor
 {
+
+	private const SignedMax = [
+		'tinyint' => 127.0,
+		'smallint' => 32_767.0,
+		'mediumint' => 8_388_607.0,
+		'int' => 2_147_483_647.0,
+		'bigint' => 9_223_372_036_854_775_807.0,
+	],
+		UnsignedMax = [
+			'tinyint' => 255.0,
+			'smallint' => 65_535.0,
+			'mediumint' => 16_777_215.0,
+			'int' => 4_294_967_295.0,
+			'bigint' => 18_446_744_073_709_551_615.0,
+		];
 
 	public function analyse(): AnalysisResult
 	{
@@ -15,26 +32,46 @@ final class AutoIncrementNearLimitMysqlAuditor extends AutoIncrementNearLimitAud
 		//		- to by bylo dobré i jako samostatná kontrola, záleží na ní execution plan
 		//		- https://www.percona.com/blog/correcting-mysql-inaccurate-table-statistics-for-better-execution-plan/
 		//TODO - započítávat steps
-		$records = $this->getRecords();
+		$db = $this->schema->getDatabaseDefault()['name'];
+
+		$autoIncrementByTable = [];
+		foreach ($this->schema->getTables() as $tableRow) {
+			if ($tableRow['AUTO_INCREMENT'] !== null) {
+				$autoIncrementByTable[$tableRow['TABLE_NAME']] = (float) $tableRow['AUTO_INCREMENT'];
+			}
+		}
 
 		$violations = [];
-		foreach ($records as $record) {
-			$source = new ColumnViolationSource(
-				$record['TABLE_SCHEMA'],
-				null,
-				$record['TABLE_NAME'],
-				$record['COLUMN_NAME'],
-			);
-			$source->setColumnType($record['COLUMN_TYPE']);
+		foreach ($this->schema->getColumns() as $column) {
+			if (stripos($column['EXTRA'], 'auto_increment') === false) {
+				continue;
+			}
 
-			$message = 'Autoincrement is above threshold of '
-				. $this->percentileThreshold
-				. '% in '
-				. $source->toString();
+			$autoIncrement = $autoIncrementByTable[$column['TABLE_NAME']] ?? null;
+			if ($autoIncrement === null) {
+				continue;
+			}
+
+			$type = strtolower($column['DATA_TYPE']);
+			$isUnsigned = stripos($column['COLUMN_TYPE'], 'unsigned') !== false;
+			$max = $isUnsigned ? (self::UnsignedMax[$type] ?? null) : (self::SignedMax[$type] ?? null);
+			if ($max === null) {
+				continue;
+			}
+
+			if ($autoIncrement / $max * 100 < (float) $this->percentileThreshold) {
+				continue;
+			}
+
+			$source = new ColumnViolationSource($db, null, $column['TABLE_NAME'], $column['COLUMN_NAME']);
+			$source->setColumnType($column['COLUMN_TYPE']);
 
 			$violations[] = new Violation(
 				'auto_increment_near_limit',
-				$message,
+				'Autoincrement is above threshold of '
+				. $this->percentileThreshold
+				. '% in '
+				. $source->toString(),
 				$source,
 				false,
 				'Migrate the column to a wider integer type (e.g. BIGINT) before it overflows.',
@@ -42,65 +79,6 @@ final class AutoIncrementNearLimitMysqlAuditor extends AutoIncrementNearLimitAud
 		}
 
 		return new AnalysisResult($violations);
-	}
-
-	/**
-	 * @return list<array{
-	 *     TABLE_SCHEMA: string,
-	 *     TABLE_NAME: string,
-	 *     COLUMN_NAME: string,
-	 *     COLUMN_TYPE: string,
-	 *     AUTO_INCREMENT: int,
-	 * }>
-	 */
-	public function getRecords(): array
-	{
-		$threshold = $this->dbal->escapeInt($this->percentileThreshold);
-
-		return $this->dbal->query(
-		/** @lang MySQL */
-			<<<SQL
-SELECT
-	c.TABLE_SCHEMA,
-	c.TABLE_NAME,
-	c.COLUMN_NAME,
-	c.COLUMN_TYPE,
-	t.AUTO_INCREMENT,
-	(CASE
-		WHEN c.DATA_TYPE = 'tinyint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 255
-		WHEN c.DATA_TYPE = 'tinyint' THEN 127
-		WHEN c.DATA_TYPE = 'smallint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 65535
-		WHEN c.DATA_TYPE = 'smallint' THEN 32767
-		WHEN c.DATA_TYPE = 'mediumint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 16777215
-		WHEN c.DATA_TYPE = 'mediumint' THEN 8388607
-		WHEN c.DATA_TYPE = 'int' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 4294967295
-		WHEN c.DATA_TYPE = 'int' THEN 2147483647
-		WHEN c.DATA_TYPE = 'bigint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 18446744073709551615
-		WHEN c.DATA_TYPE = 'bigint' THEN 9223372036854775807
-		ELSE 0
-	END) AS MAX_VALUE,
-	(CAST(t.AUTO_INCREMENT AS DECIMAL(65, 0)) / CAST((CASE
-		WHEN c.DATA_TYPE = 'tinyint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 255
-		WHEN c.DATA_TYPE = 'tinyint' THEN 127
-		WHEN c.DATA_TYPE = 'smallint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 65535
-		WHEN c.DATA_TYPE = 'smallint' THEN 32767
-		WHEN c.DATA_TYPE = 'mediumint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 16777215
-		WHEN c.DATA_TYPE = 'mediumint' THEN 8388607
-		WHEN c.DATA_TYPE = 'int' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 4294967295
-		WHEN c.DATA_TYPE = 'int' THEN 2147483647
-		WHEN c.DATA_TYPE = 'bigint' AND c.COLUMN_TYPE LIKE '%unsigned%' THEN 18446744073709551615
-		WHEN c.DATA_TYPE = 'bigint' THEN 9223372036854775807
-		ELSE NULL
-	END) AS DECIMAL(65, 0)) * 100) AS PERCENTAGE_USED
-FROM INFORMATION_SCHEMA.TABLES t
-JOIN INFORMATION_SCHEMA.COLUMNS c ON t.TABLE_NAME = c.TABLE_NAME AND t.TABLE_SCHEMA = c.TABLE_SCHEMA
-WHERE c.TABLE_SCHEMA = DATABASE()
-	AND c.EXTRA LIKE '%auto_increment%'
-	AND t.AUTO_INCREMENT IS NOT NULL
-HAVING PERCENTAGE_USED IS NOT NULL AND PERCENTAGE_USED >= $threshold
-ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.COLUMN_NAME;
-SQL,
-		);
 	}
 
 }

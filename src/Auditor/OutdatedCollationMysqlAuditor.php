@@ -701,7 +701,7 @@ final class OutdatedCollationMysqlAuditor extends OutdatedCollationAuditor
 	}
 
 	/**
-	 * @param array{TABLE_NAME: string, ENGINE: string|null, ROW_FORMAT: string|null, TABLE_COLLATION: string|null} $table
+	 * @param array{TABLE_NAME: string, ENGINE: string|null, ROW_FORMAT: string|null, TABLE_COLLATION: string|null, AUTO_INCREMENT: int|string|null} $table
 	 * @param array<string, int> $charsetMaxlen
 	 * @param list<Violation> $unfixable
 	 * @param list<Advisory>  $advisories
@@ -1078,7 +1078,7 @@ final class OutdatedCollationMysqlAuditor extends OutdatedCollationAuditor
 	}
 
 	/**
-	 * @return list<array{TABLE_NAME: string, ENGINE: string|null, ROW_FORMAT: string|null, TABLE_COLLATION: string|null}>
+	 * @return list<array{TABLE_NAME: string, ENGINE: string|null, ROW_FORMAT: string|null, TABLE_COLLATION: string|null, AUTO_INCREMENT: int|string|null}>
 	 */
 	private function getTables(): array
 	{
