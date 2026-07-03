@@ -306,7 +306,7 @@ final class AnalyseCommand extends Command
 			foreach ($findings as $violation) {
 				$body[] = '  ' . $this->highlight($violation->getMessage());
 
-				$identifier = '  <fg=gray>🪪  ' . $violation->getKey() . '</>';
+				$identifier = '  <fg=white>🪪  ' . $violation->getKey() . '</>';
 				if ($violation->isFixable()) {
 					$identifier .= ' 🔧';
 				}
@@ -314,7 +314,7 @@ final class AnalyseCommand extends Command
 				$body[] = $identifier;
 
 				if ($violation->getHint() !== null) {
-					$body[] = '  💡  ' . $this->highlight($violation->getHint());
+					$body[] = '  💡  ' . $this->highlightHint($violation->getHint());
 				}
 			}
 
@@ -382,10 +382,16 @@ final class AnalyseCommand extends Command
 	private function highlight(string $text): string
 	{
 		// Only explicit, delimited tokens — a bare-word match would colour "date" inside "outdated".
-		$text = $this->bracketize($text, 'cyan');
+		$text = $this->bracketize($text, 'yellow');
 		$text = preg_replace('#`[^`]*`#', '<fg=yellow>$0</>', $text) ?? $text;
 
-		return preg_replace("#'[^']*'#", '<fg=magenta>$0</>', $text) ?? $text;
+		return preg_replace("#'[^']*'#", '<fg=blue>$0</>', $text) ?? $text;
+	}
+
+	private function highlightHint(string $text): string
+	{
+		// Hints stay white; only the runnable command is highlighted, in blue.
+		return preg_replace('#db-audit:\S+(?:\s+--\S+)*#', '<fg=blue>$0</>', $text) ?? $text;
 	}
 
 	/**
