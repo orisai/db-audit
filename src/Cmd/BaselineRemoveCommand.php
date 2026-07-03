@@ -9,7 +9,6 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use function ctype_digit;
 use function sprintf;
 
 final class BaselineRemoveCommand extends Command
@@ -43,7 +42,12 @@ final class BaselineRemoveCommand extends Command
 		$this->addOption('category', 'c', InputOption::VALUE_REQUIRED, 'Choose "structure" or "data" (required)');
 		$this->addOption('key', null, InputOption::VALUE_REQUIRED, 'Match entries with this identifier');
 		$this->addOption('raw-message', null, InputOption::VALUE_REQUIRED, 'Match entries with this exact message');
-		$this->addOption('count', null, InputOption::VALUE_REQUIRED, 'Match entries with this exact count');
+		$this->addOption(
+			'message',
+			null,
+			InputOption::VALUE_REQUIRED,
+			'Match entries whose message matches this regex',
+		);
 		$this->addOption('table', null, InputOption::VALUE_REQUIRED, 'Match entries on this table');
 		$this->addOption('column', null, InputOption::VALUE_REQUIRED, 'Match entries on this column');
 	}
@@ -70,31 +74,19 @@ final class BaselineRemoveCommand extends Command
 
 		$key = $this->option($input, 'key');
 		$rawMessage = $this->option($input, 'raw-message');
+		$message = $this->option($input, 'message');
 		$table = $this->option($input, 'table');
 		$column = $this->option($input, 'column');
 
-		$count = null;
-		$countOption = $input->getOption('count');
-		if ($countOption !== null) {
-			$countString = (string) $countOption;
-			if ($countString === '0' || !ctype_digit($countString)) {
-				$output->writeln('<error>--count must be a positive integer.</error>');
-
-				return self::FAILURE;
-			}
-
-			$count = (int) $countString;
-		}
-
-		if ($key === null && $rawMessage === null && $count === null && $table === null && $column === null) {
+		if ($key === null && $rawMessage === null && $message === null && $table === null && $column === null) {
 			$output->writeln(
-				'<error>Provide at least one of --key, --raw-message, --count, --table or --column.</error>',
+				'<error>Provide at least one of --key, --raw-message, --message, --table or --column.</error>',
 			);
 
 			return self::FAILURE;
 		}
 
-		$removed = Baseline::remove($path, new BaselineFilter($key, $rawMessage, $count, $table, $column));
+		$removed = Baseline::remove($path, new BaselineFilter($key, $rawMessage, $message, $table, $column));
 
 		$output->writeln(sprintf('Removed %d %s.', $removed, $removed === 1 ? 'entry' : 'entries'));
 

@@ -103,17 +103,22 @@ final class BaselineRemoveCommandTest extends TestCase
 		unlink($path);
 	}
 
-	public function testRejectsNonPositiveCount(): void
+	public function testRemoveByMessage(): void
 	{
-		$path = $this->baselineWithTwoEntries();
-		$tester = new CommandTester(new BaselineRemoveCommand($path, $path));
+		$structurePath = $this->baselineWithTwoEntries();
+		$dataPath = $this->tempPath();
+		$tester = new CommandTester(new BaselineRemoveCommand($structurePath, $dataPath));
 
-		$tester->execute(['--category' => 'structure', '--count' => '0'], ['decorated' => false]);
+		$tester->execute(['--category' => 'structure', '--message' => 'no primary key'], ['decorated' => false]);
 
-		self::assertSame(Command::FAILURE, $tester->getStatusCode());
-		self::assertStringContainsString('positive integer', $tester->getDisplay());
+		self::assertSame(Command::SUCCESS, $tester->getStatusCode());
+		self::assertStringContainsString('Removed 1 entry', $tester->getDisplay());
+		$remaining = Baseline::load($structurePath)->getErrors();
+		self::assertCount(1, $remaining);
+		self::assertSame('outdated_collation.column', $remaining[0]->getKey());
 
-		unlink($path);
+		unlink($structurePath);
+		unlink($dataPath);
 	}
 
 	private function baselineWithTwoEntries(): string

@@ -8,6 +8,7 @@ use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\TableViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use PHPUnit\Framework\TestCase;
+use function file_get_contents;
 use function sys_get_temp_dir;
 use function tempnam;
 use function unlink;
@@ -21,6 +22,12 @@ final class BaselineTest extends TestCase
 		$violations = $this->sampleViolations();
 
 		Baseline::write($path, $violations);
+
+		$contents = file_get_contents($path);
+		self::assertIsString($contents);
+		self::assertStringContainsString('yield [', $contents);
+		self::assertStringContainsString("\t];\n\n\tyield [", $contents);
+
 		$list = Baseline::load($path);
 
 		// Two grouped entries: the duplicated column (count 2) and the table (count 1).
@@ -30,6 +37,20 @@ final class BaselineTest extends TestCase
 		self::assertSame([], $result->getRemaining());
 		self::assertSame(3, $result->getIgnoredCount());
 		self::assertSame([], $result->getUnmatched());
+
+		unlink($path);
+	}
+
+	public function testEmptyBaselineLoadsToZeroEntries(): void
+	{
+		$path = $this->tempPath();
+
+		Baseline::write($path, []);
+		$contents = file_get_contents($path);
+		self::assertIsString($contents);
+		self::assertStringContainsString('yield from []', $contents);
+
+		self::assertCount(0, Baseline::load($path)->getErrors());
 
 		unlink($path);
 	}
@@ -75,8 +96,8 @@ final class BaselineTest extends TestCase
 		$path = $this->tempPath();
 		Baseline::write($path, $this->sampleViolations());
 
-		// count + table + column together must all match.
-		$removed = Baseline::remove($path, new BaselineFilter(null, null, 2, 't', 'c'));
+		// message regex + table + column together must all match.
+		$removed = Baseline::remove($path, new BaselineFilter(null, null, 'outdated charset', 't', 'c'));
 
 		self::assertSame(1, $removed);
 		self::assertSame('missing_primary_key', Baseline::load($path)->getErrors()[0]->getKey());

@@ -3,6 +3,7 @@
 namespace Orisai\DbAudit\Ignore;
 
 use Orisai\Exceptions\Logic\InvalidArgument;
+use function preg_match;
 
 final class BaselineFilter
 {
@@ -14,32 +15,32 @@ final class BaselineFilter
 	private ?string $rawMessage;
 
 	/** @readonly */
+	private ?string $message;
+
+	/** @readonly */
 	private ?string $table;
 
 	/** @readonly */
 	private ?string $column;
 
-	/** @readonly */
-	private ?int $count;
-
 	public function __construct(
 		?string $key = null,
 		?string $rawMessage = null,
-		?int $count = null,
+		?string $message = null,
 		?string $table = null,
 		?string $column = null
 	)
 	{
-		if ($key === null && $rawMessage === null && $count === null && $table === null && $column === null) {
+		if ($key === null && $rawMessage === null && $message === null && $table === null && $column === null) {
 			throw InvalidArgument::create()
-				->withMessage('Baseline filter must define at least one of key, rawMessage, count, table or column.');
+				->withMessage('Baseline filter must define at least one of key, rawMessage, message, table or column.');
 		}
 
 		$this->key = $key;
 		$this->rawMessage = $rawMessage;
+		$this->message = $message;
 		$this->table = $table;
 		$this->column = $column;
-		$this->count = $count;
 	}
 
 	/**
@@ -55,7 +56,7 @@ final class BaselineFilter
 			return false;
 		}
 
-		if ($this->count !== null && $entry['count'] !== $this->count) {
+		if ($this->message !== null && preg_match('#' . $this->message . '#', (string) $entry['rawMessage']) !== 1) {
 			return false;
 		}
 
