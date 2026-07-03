@@ -9,7 +9,9 @@ use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -46,7 +48,7 @@ final class EmptyColumnMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -152,7 +154,7 @@ INSERT INTO `all_string_types` (`char`, `varchar`, `tinytext`, `text`, `mediumte
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -200,7 +202,33 @@ SQL,
 				new ColumnViolationSource($db, null, 'háčky čárky', 'háčky čárky'),
 			),
 		], $report);
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
+
+		// The provider's exclude must reach the data scan
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE TABLE `excluded_1` (`a` int NULL)',
+		);
+
+		$dbal->exec(
+		/** @lang MySQL */
+			'INSERT INTO `excluded_1` (`a`) VALUES (NULL)',
+		);
+
+		// Views must not be scanned
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE VIEW `empty_view` AS SELECT `b` FROM `full_table`',
+		);
+
+		$excludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$excludingAuditor = new EmptyColumnMysqlAuditor($excludingSchema);
+		$violations = AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations();
+
+		foreach ($violations as $violation) {
+			self::assertStringNotContainsString('excluded_1', $violation->getMessage());
+			self::assertStringNotContainsString('empty_view', $violation->getMessage());
+		}
 	}
 
 	/**
@@ -253,7 +281,7 @@ SQL,
 				'Column [str_empty][s] is empty.',
 				new ColumnViolationSource($db, null, 'str_empty', 's'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -294,7 +322,7 @@ SQL,
 				'Column [we`ird][c`2] is empty.',
 				new ColumnViolationSource($db, null, 'we`ird', 'c`2'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -323,7 +351,7 @@ SQL,
 				'Column [base][c] is empty.',
 				new ColumnViolationSource($db, null, 'base', 'c'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }
