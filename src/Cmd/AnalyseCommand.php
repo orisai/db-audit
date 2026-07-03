@@ -301,8 +301,22 @@ final class AnalyseCommand extends Command
 		foreach ($groups as $source => $findings) {
 			$header = '  ' . $this->bracketize($source, 'green');
 
-			$body = [];
+			// Aggregate identical findings (same identifier + message) into one entry with an occurrence count.
+			/** @var array<string, array{violation: Violation, count: int}> $aggregated */
+			$aggregated = [];
 			foreach ($findings as $violation) {
+				$dedup = $violation->getKey() . "\0" . $violation->getMessage();
+				if (isset($aggregated[$dedup])) {
+					$aggregated[$dedup]['count']++;
+				} else {
+					$aggregated[$dedup] = ['violation' => $violation, 'count' => 1];
+				}
+			}
+
+			$body = [];
+			foreach ($aggregated as $entry) {
+				$violation = $entry['violation'];
+
 				// A left emoji gutter (🔧 when fixable, blank otherwise) keeps message/🪪/💡 text aligned.
 				$fix = $violation->isFixable() ? '🔧' : '  ';
 				$body[] = '  ' . $fix . '  ' . $this->highlight($violation->getMessage());
@@ -312,6 +326,8 @@ final class AnalyseCommand extends Command
 				if ($violation->getHint() !== null) {
 					$body[] = '  💡  ' . $this->highlightHint($violation->getHint());
 				}
+
+				$body[] = $this->countLine($entry['count']);
 			}
 
 			$this->renderBlock($io, $header, $body);
@@ -355,6 +371,12 @@ final class AnalyseCommand extends Command
 		$stripped = preg_replace('#<[^>]+>#', '', $line) ?? $line;
 
 		return mb_strwidth($stripped);
+	}
+
+	private function countLine(int $count): string
+	{
+		// Six leading spaces align the note under the message/🪪 text column.
+		return '      <fg=white>count: ' . $count . '</>';
 	}
 
 	private function sourceRef(Violation $violation): string
@@ -515,7 +537,7 @@ final class AnalyseCommand extends Command
 		}
 
 		if ($ignore->getCount() !== null) {
-			$body[] = '      <fg=gray>count: ' . $ignore->getCount() . '</>';
+			$body[] = $this->countLine($ignore->getCount());
 		}
 
 		return $body;
