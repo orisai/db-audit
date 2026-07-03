@@ -274,7 +274,7 @@ Two commands (require `symfony/console`) wrap a configured `Runner` and, for the
 | Command | Purpose |
 | --- | --- |
 | `db-audit:analyse` | Run the analysers and print each error (message, `identifier`, whether it is `fixable`, optional hint), a per-identifier summary table, a status box and a time/memory footer. `--category=structure\|data\|all` is **required**. `-b`/`--generate-baseline` writes all current errors to the configured baseline(s) for the selected categories and succeeds; without it, the configured baseline(s) are subtracted from the reported errors first and the command fails iff any non-baselined error remains. `--generate-fix=PATH` composes the fixes for a **single** category (not `all`, and never combined with `-b`) and writes the SQL to `PATH`; exits non-zero when anything is unfixable. |
-| `db-audit:baseline:remove` | Remove entries from the configured baseline for one category (`--category=structure\|data`, required) matching `--key`, `--raw-message`, `--count`, `--table` and/or `--column` (every provided filter must match). |
+| `db-audit:baseline:remove` | Remove entries from the configured baseline for one category (`--category=structure\|data`, required) matching `--key`, `--raw-message` (exact), `--message` (regex), `--table` and/or `--column` (every provided filter must match). |
 
 ```php
 use Orisai\DbAudit\Cmd\AnalyseCommand;
