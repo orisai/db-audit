@@ -11,8 +11,6 @@ use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Report\Warning;
 use Orisai\DbAudit\Runner\Runner;
 use Symfony\Component\Console\Command\Command;
-use Symfony\Component\Console\Helper\Table;
-use Symfony\Component\Console\Helper\TableSeparator;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -24,6 +22,7 @@ use function implode;
 use function is_file;
 use function memory_get_peak_usage;
 use function microtime;
+use function preg_replace;
 use function preg_replace_callback;
 use function sprintf;
 
@@ -290,84 +289,68 @@ final class AnalyseCommand extends Command
 			return;
 		}
 
-		// Group by source (its table), like PHPStan groups findings by file.
+		// Group by source (table + column), like PHPStan groups findings by file.
 		$groups = [];
 		foreach ($errors as $violation) {
-			[$location, $column] = $this->locate($violation);
-			$groups[$location][] = [$column, $violation];
+			$groups[$this->sourceRef($violation)][] = $violation;
 		}
 
-		foreach ($groups as $location => $findings) {
-			$table = new Table($io);
-			$table->setHeaders(['', '<fg=green>' . $location . '</>']);
+		foreach ($groups as $source => $findings) {
+			$io->writeln($this->bracketize($source, 'green'));
 
-			$last = count($findings) - 1;
-			foreach ($findings as $i => [$column, $violation]) {
-				$table->addRow([$column, $this->highlight($violation->getMessage())]);
+			foreach ($findings as $violation) {
+				$io->writeln('  ' . $this->highlight($violation->getMessage()));
 
-				$identifier = '<fg=gray>🪪  ' . $violation->getKey() . '</>';
+				$identifier = '  <fg=gray>🪪  ' . $violation->getKey() . '</>';
 				if ($violation->isFixable()) {
-					$identifier .= ' <fg=yellow>(fixable)</>';
+					$identifier .= ' 🔧';
 				}
 
-				$table->addRow(['', $identifier]);
+				$io->writeln($identifier);
 
 				if ($violation->getHint() !== null) {
-					$table->addRow(['', '<fg=gray>💡  ' . $violation->getHint() . '</>']);
-				}
-
-				if ($i !== $last) {
-					$table->addRow(new TableSeparator());
+					$io->writeln('  💡  ' . $this->highlight($violation->getHint()));
 				}
 			}
 
-			$table->render();
 			$io->newLine();
 		}
 	}
 
-	/**
-	 * @return array{0: string, 1: string}
-	 */
-	private function locate(Violation $violation): array
+	private function sourceRef(Violation $violation): string
 	{
 		$source = $violation->getSource();
 
 		if ($source instanceof ColumnViolationSource) {
-			return [$source->getTable(), $source->getColumn()];
+			return '[' . $source->getTable() . '][' . $source->getColumn() . ']';
 		}
 
 		if ($source instanceof TableViolationSource) {
-			return [$source->getTable(), ''];
+			return '[' . $source->getTable() . ']';
 		}
 
-		return [$source->toString(), ''];
+		return $source->toString();
 	}
 
-	private function highlight(string $message): string
+	private function bracketize(string $text, string $color): string
 	{
-		$highlighted = preg_replace_callback(
-			'#(\[[^\]]*\])'
-			. '|(`[^`]*`)'
-			. '|((?:utf8mb4|utf8mb3|utf8|latin1|latin2|cp1250|ascii|binary|gbk|big5|sjis|ucs2|utf16|utf32)[a-z0-9_]*)'
-			. '|((?:var)?char\(\d+\)|(?:tiny|small|medium|big)?int(?:\(\d+\))?(?: unsigned)?|decimal(?:\([\d, ]+\))?'
-			. '|float|double|bit|datetime(?:\(\d+\))?|timestamp(?:\(\d+\))?|date|time|year'
-			. '|(?:tiny|medium|long)?text|(?:tiny|medium|long)?blob|json|enum\([^)]*\)|set\([^)]*\))#i',
-			static function (array $m): string {
-				if ($m[1] !== '') {
-					return '<fg=cyan>' . $m[1] . '</>';
-				}
-
-				if ($m[2] !== '') {
-					return '<fg=yellow>' . $m[2] . '</>';
-				}
-
-				return '<fg=magenta>' . $m[0] . '</>';
-			},
-			$message,
+		// `[table][column]` refs: white brackets, coloured content.
+		$result = preg_replace_callback(
+			'#\[([^\]]*)\]#',
+			static fn (array $m): string => '<fg=white>[</><fg=' . $color . '>' . $m[1] . '</><fg=white>]</>',
+			$text,
 		);
 
-		return $highlighted ?? $message;
+		return $result ?? $text;
+	}
+
+	private function highlight(string $text): string
+	{
+		// Only explicit, delimited tokens — a bare-word match would colour "date" inside "outdated".
+		$text = $this->bracketize($text, 'cyan');
+		$text = preg_replace('#`[^`]*`#', '<fg=yellow>$0</>', $text) ?? $text;
+
+		return preg_replace("#'[^']*'#", '<fg=magenta>$0</>', $text) ?? $text;
 	}
 
 	/**
