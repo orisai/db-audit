@@ -99,7 +99,7 @@ final class OutdatedCollationMysqlAuditor extends OutdatedCollationAuditor
 				'Database ' . $dbName . ' default charset/collation is outdated.',
 				$source,
 				true,
-				'Run db-audit:analyse --category=structure --generate-fix=<file> to produce the migration SQL.',
+				'Run db-audit:analyse --category=structure --generate-fix=migration.sql to produce the migration SQL.',
 				[
 					new DatabaseDefaultChange(
 						$dbName,
@@ -124,7 +124,7 @@ final class OutdatedCollationMysqlAuditor extends OutdatedCollationAuditor
 					'Table ' . $source->toString() . ' default charset/collation is outdated.',
 					$source,
 					true,
-					'Run db-audit:analyse --category=structure --generate-fix=<file> to produce the migration SQL.',
+					'Run db-audit:analyse --category=structure --generate-fix=migration.sql to produce the migration SQL.',
 					[$tableDefaultChange],
 				);
 			}
@@ -149,7 +149,7 @@ final class OutdatedCollationMysqlAuditor extends OutdatedCollationAuditor
 					'Column ' . $source->toString() . ' has an outdated charset/collation.',
 					$source,
 					true,
-					'Run db-audit:analyse --category=structure --generate-fix=<file> to produce the migration SQL.',
+					'Run db-audit:analyse --category=structure --generate-fix=migration.sql to produce the migration SQL.',
 					[$change],
 				);
 			}

@@ -15,16 +15,20 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use function array_merge;
 use function arsort;
 use function count;
 use function file_put_contents;
 use function implode;
 use function is_file;
+use function max;
+use function mb_strwidth;
 use function memory_get_peak_usage;
 use function microtime;
 use function preg_replace;
 use function preg_replace_callback;
 use function sprintf;
+use function str_repeat;
 
 final class AnalyseCommand extends Command
 {
@@ -296,25 +300,56 @@ final class AnalyseCommand extends Command
 		}
 
 		foreach ($groups as $source => $findings) {
-			$io->writeln($this->bracketize($source, 'green'));
+			$header = '  ' . $this->bracketize($source, 'green');
 
+			$body = [];
 			foreach ($findings as $violation) {
-				$io->writeln('  ' . $this->highlight($violation->getMessage()));
+				$body[] = '  ' . $this->highlight($violation->getMessage());
 
 				$identifier = '  <fg=gray>🪪  ' . $violation->getKey() . '</>';
 				if ($violation->isFixable()) {
 					$identifier .= ' 🔧';
 				}
 
-				$io->writeln($identifier);
+				$body[] = $identifier;
 
 				if ($violation->getHint() !== null) {
-					$io->writeln('  💡  ' . $this->highlight($violation->getHint()));
+					$body[] = '  💡  ' . $this->highlight($violation->getHint());
 				}
 			}
 
+			// PHPStan-style horizontal rules (no vertical borders): rule, header, rule, body, rule.
+			$rule = $this->rule(array_merge([$header], $body));
+			$io->writeln($rule);
+			$io->writeln($header);
+			$io->writeln($rule);
+			foreach ($body as $line) {
+				$io->writeln($line);
+			}
+
+			$io->writeln($rule);
 			$io->newLine();
 		}
+	}
+
+	/**
+	 * @param list<string> $lines
+	 */
+	private function rule(array $lines): string
+	{
+		$width = 0;
+		foreach ($lines as $line) {
+			$width = max($width, $this->visibleWidth($line));
+		}
+
+		return ' ' . str_repeat('─', $width);
+	}
+
+	private function visibleWidth(string $line): int
+	{
+		$stripped = preg_replace('#<[^>]+>#', '', $line) ?? $line;
+
+		return mb_strwidth($stripped);
 	}
 
 	private function sourceRef(Violation $violation): string

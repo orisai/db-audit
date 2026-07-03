@@ -242,7 +242,7 @@ SQL,
 		// Both endpoints share the database default charset (utf8mb4), so there is no charset mismatch; each child
 		// is varchar(10) and the parent varchar(20). Same base type, child shorter, so every size mismatch is a
 		// WIDEN: fixable by widening the child to the parent length.
-		$hint = 'Run db-audit:analyse --category=structure --generate-fix=<file> to produce the migration SQL.';
+		$hint = 'Run db-audit:analyse --category=structure --generate-fix=migration.sql to produce the migration SQL.';
 		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			new Violation(
@@ -339,7 +339,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 SQL,
 		);
 
-		$hint = 'Run db-audit:analyse --category=structure --generate-fix=<file> to produce the migration SQL.';
+		$hint = 'Run db-audit:analyse --category=structure --generate-fix=migration.sql to produce the migration SQL.';
 		self::assertEquals([
 			new Violation(
 				'foreign_key.size_mismatch',
@@ -546,7 +546,7 @@ SQL,
 
 		// utf8mb3 (MAXLEN 3) -> utf8mb4 (MAXLEN 4): child is strictly narrower and not single-byte legacy,
 		// so the charset mismatch is SAFE-ALIGN: fixable by aligning the child charset/collation to the parent's.
-		$hint = 'Run db-audit:analyse --category=structure --generate-fix=<file> to produce the migration SQL.';
+		$hint = 'Run db-audit:analyse --category=structure --generate-fix=migration.sql to produce the migration SQL.';
 		self::assertEquals([
 			new Violation(
 				'foreign_key.charset_mismatch',
