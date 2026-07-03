@@ -27,9 +27,6 @@ parameters:
 		-
 			message: "#^Method (.+)Auditor\\:\\:getRecords\\(\\) should return list\\<array\\{(.+)\\}\\> but returns list\\<array\\<string, mixed\\>\\>\\.$#"
 			path: ../src/Auditor
-		-
-			message: "#^Method (.+)Auditor\\:\\:getChecks\\(\\) should return list\\<array\\{(.+)\\}\\> but returns list\\<array\\<string, mixed\\>\\>\\.$#"
-			path: ../src/Auditor/BoolLikeColumnMysqlAuditor.php
 		# Schema provider returns shaped rows from unanalysed database queries
 		-
 			message: "#^Method Orisai\\\\DbAudit\\\\Schema\\\\SchemaProvider\\:\\:get[A-Za-z]+\\(\\) should return list\\<array\\{(.+)\\}\\> but returns list\\<array\\<string, mixed\\>\\>\\.$#"
@@ -42,6 +39,15 @@ parameters:
 		-
 			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-falsy-string\\.$#"
 			path: ../src/Data/TableDataProfiler.php
+		# The CHECK-constraint lookup interpolates an IN(...) list of table names, so the assembled SQL is asserted literal for replay
+		-
+			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-falsy-string\\.$#"
+			path: ../src/Auditor/BoolLikeColumnMysqlAuditor.php
+		# A table name that is a canonical decimal integer becomes an int array key (PHP array-key coercion), so the
+		# cast guards against passing an int to escapeString()'s string parameter under strict_types
+		-
+			message: "#^Casting to string something that's already string\\.$#"
+			path: ../src/Auditor/BoolLikeColumnMysqlAuditor.php
 		# Migration SQL is split into statements then asserted as literal for replay in the round-trip test
 		-
 			message: "#^PHPDoc tag @var with type literal-string is not subtype of native type non-empty-string\\.$#"

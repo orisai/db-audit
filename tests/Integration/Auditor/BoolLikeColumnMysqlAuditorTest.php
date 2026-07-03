@@ -9,7 +9,9 @@ use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -46,7 +48,7 @@ final class BoolLikeColumnMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -166,8 +168,8 @@ SQL,
 		$mediumintUnsigned = $mariadb ? 'mediumint(8) unsigned' : 'mediumint unsigned';
 		$smallintUnsigned = $mariadb ? 'smallint(5) unsigned' : 'smallint unsigned';
 
-		$report = $auditor->analyse()->getViolations();
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -219,6 +221,21 @@ SQL,
 					->setColumnType($smallintUnsigned),
 			),
 		], $report);
+
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE TABLE `excluded_1` (`a` int NULL)',
+		);
+		$dbal->exec(
+		/** @lang MySQL */
+			'INSERT INTO `excluded_1` (`a`) VALUES (0), (1)',
+		);
+
+		$excludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$excludingAuditor = new BoolLikeColumnMysqlAuditor($excludingSchema);
+		foreach (AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations() as $violation) {
+			self::assertStringNotContainsString('excluded_1', $violation->getMessage());
+		}
 	}
 
 	/**
@@ -256,7 +273,7 @@ SQL,
 			'INSERT INTO `allnull` (`flag`) VALUES (null), (null)',
 		);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -274,7 +291,8 @@ SQL,
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		// Simulate a procedure left over from a run killed before cleanup(); createProcedure() must DROP it first.
+		// A stray procedure sharing the name of the old implementation's routine must not interfere with the
+		// procedure-free, profiler-driven analysis.
 		$dbal->exec(
 		/** @lang MySQL */
 			'CREATE PROCEDURE OrisaiDbAudit_FindBoolLikeColumns() BEGIN END',
@@ -289,16 +307,15 @@ SQL,
 			'INSERT INTO `flags` (`flag`) VALUES (0), (1)',
 		);
 
-		// A tinyint with a valid CHECK yields no violations; the point is that analyse() does not throw
-		// "PROCEDURE already exists" when a leftover procedure is present, and still returns correct results.
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		// A tinyint with a valid CHECK yields no violations, unaffected by the unrelated stray procedure.
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		// Same again, now with a column missing its CHECK so a violation is produced; the integer display
 		// width differs between MySQL and MariaDB, so assert on the stable fields rather than the type string.
 		$dbal->exec(/** @lang MySQL */ 'CREATE TABLE `no_check` (`flag` tinyint unsigned NULL)');
 		$dbal->exec(/** @lang MySQL */ 'INSERT INTO `no_check` (`flag`) VALUES (0), (1)');
 
-		$violations = $auditor->analyse()->getViolations();
+		$violations = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertCount(1, $violations);
 		$violation = $violations[0];
 		self::assertSame($key, $violation->getKey());
