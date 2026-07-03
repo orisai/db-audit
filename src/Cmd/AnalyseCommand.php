@@ -19,7 +19,6 @@ use function array_merge;
 use function arsort;
 use function count;
 use function file_put_contents;
-use function implode;
 use function is_file;
 use function max;
 use function mb_strwidth;
@@ -315,18 +314,27 @@ final class AnalyseCommand extends Command
 				}
 			}
 
-			// PHPStan-style horizontal rules (no vertical borders): rule, header, rule, body, rule.
-			$rule = $this->rule(array_merge([$header], $body));
-			$io->writeln($rule);
-			$io->writeln($header);
-			$io->writeln($rule);
-			foreach ($body as $line) {
-				$io->writeln($line);
-			}
-
-			$io->writeln($rule);
-			$io->newLine();
+			$this->renderBlock($io, $header, $body);
 		}
+	}
+
+	/**
+	 * PHPStan-style horizontal rules (no vertical borders): rule, header, rule, body, rule.
+	 *
+	 * @param list<string> $body
+	 */
+	private function renderBlock(SymfonyStyle $io, string $header, array $body): void
+	{
+		$rule = $this->rule(array_merge([$header], $body));
+		$io->writeln($rule);
+		$io->writeln($header);
+		$io->writeln($rule);
+		foreach ($body as $line) {
+			$io->writeln($line);
+		}
+
+		$io->writeln($rule);
+		$io->newLine();
 	}
 
 	/**
@@ -458,44 +466,64 @@ final class AnalyseCommand extends Command
 			$io->warning($warning->getMessage());
 		}
 
-		foreach ($unmatched as $ignore) {
-			$io->error('Ignored error never matched: ' . $this->describeIgnore($ignore));
+		if ($unmatched === []) {
+			return;
 		}
+
+		$io->writeln('  <fg=red>These ignored errors never matched — remove them from the baseline:</>');
+		$io->newLine();
+
+		foreach ($unmatched as $ignore) {
+			$this->renderBlock($io, $this->ignoreHeader($ignore), $this->ignoreBody($ignore));
+		}
+	}
+
+	private function ignoreHeader(IgnoredError $ignore): string
+	{
+		$table = $ignore->getTable();
+		$column = $ignore->getColumn();
+
+		if ($table !== null) {
+			$ref = '[' . $table . ']' . ($column !== null ? '[' . $column . ']' : '');
+		} elseif ($column !== null) {
+			$ref = '[' . $column . ']';
+		} else {
+			$ref = '[any source]';
+		}
+
+		return '  ' . $this->bracketize($ref, 'red');
+	}
+
+	/**
+	 * @return list<string>
+	 */
+	private function ignoreBody(IgnoredError $ignore): array
+	{
+		$rawMessage = $ignore->getRawMessage();
+		$message = $ignore->getMessage();
+		if ($rawMessage !== null) {
+			$body = ['  🚫  ' . $this->highlight($rawMessage)];
+		} elseif ($message !== null) {
+			// A regex pattern, not a literal message — shown verbatim, without token highlighting.
+			$body = ['  🚫  ' . $message];
+		} else {
+			$body = ['  🚫  <fg=gray>(matches any message)</>'];
+		}
+
+		if ($ignore->getKey() !== null) {
+			$body[] = '  <fg=white>🪪  ' . $ignore->getKey() . '</>';
+		}
+
+		if ($ignore->getCount() !== null) {
+			$body[] = '      <fg=gray>count: ' . $ignore->getCount() . '</>';
+		}
+
+		return $body;
 	}
 
 	private function renderFooter(SymfonyStyle $io, float $elapsed, int $peakBytes): void
 	{
 		$io->writeln(sprintf('⏱  Time: %.2fs   💾  Memory: %.1f MB', $elapsed, $peakBytes / 1_048_576));
-	}
-
-	private function describeIgnore(IgnoredError $ignore): string
-	{
-		$parts = [];
-		if ($ignore->getRawMessage() !== null) {
-			$parts[] = 'rawMessage=' . $ignore->getRawMessage();
-		}
-
-		if ($ignore->getMessage() !== null) {
-			$parts[] = 'message=' . $ignore->getMessage();
-		}
-
-		if ($ignore->getKey() !== null) {
-			$parts[] = 'key=' . $ignore->getKey();
-		}
-
-		if ($ignore->getTable() !== null) {
-			$parts[] = 'table=' . $ignore->getTable();
-		}
-
-		if ($ignore->getColumn() !== null) {
-			$parts[] = 'column=' . $ignore->getColumn();
-		}
-
-		if ($ignore->getCount() !== null) {
-			$parts[] = 'count=' . $ignore->getCount();
-		}
-
-		return implode(', ', $parts);
 	}
 
 }
