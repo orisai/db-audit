@@ -9,7 +9,9 @@ use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -44,7 +46,7 @@ final class InvalidDateMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -71,16 +73,35 @@ SQL,
 
 		//TODO - tady otestovat všechny validní hodnoty
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		//TODO - tady otestovat všechny nevalidní hodnoty
 		//		- nastavit sql mód
 
-		$report = $auditor->analyse()->getViolations();
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
 		self::assertEquals([
 			// TODO - tests
 		], $report);
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
+
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE TABLE `excluded_1` (`created` DATETIME NULL)',
+		);
+
+		$dbal->exec('SET @orisai_sql_mode = @@SESSION.sql_mode');
+		$dbal->exec("SET SESSION sql_mode = ''");
+		$dbal->exec(
+		/** @lang MySQL */
+			"INSERT INTO `excluded_1` (`created`) VALUES ('2024-00-01 00:00:00')",
+		);
+		$dbal->exec('SET SESSION sql_mode = @orisai_sql_mode');
+
+		$excludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$excludingAuditor = new InvalidDateMysqlAuditor($excludingSchema);
+		foreach (AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations() as $violation) {
+			self::assertStringNotContainsString('excluded_1', $violation->getMessage());
+		}
 	}
 
 	/**
@@ -119,7 +140,7 @@ SQL,
 				'Column [order][date] contains invalid dates.',
 				new ColumnViolationSource($db, null, 'order', 'date'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }

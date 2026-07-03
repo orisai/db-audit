@@ -9,7 +9,9 @@ use Orisai\DbAudit\Driver\DatabaseEngine;
 use Orisai\DbAudit\Report\ColumnViolationSource;
 use Orisai\DbAudit\Report\Violation;
 use Orisai\DbAudit\Schema\SchemaProvider;
+use Orisai\DbAudit\Schema\TableExclude;
 use PHPUnit\Framework\TestCase;
+use Tests\Orisai\DbAudit\Helper\AuditorRunner;
 use Tests\Orisai\DbAudit\Helper\DbProvider;
 use Tests\Orisai\DbAudit\Helper\MysqlShortcuts;
 
@@ -46,7 +48,7 @@ final class MixedEmptyValuesMysqlAuditorTest extends TestCase
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		self::assertEquals([], $auditor->analyse()->getViolations());
+		self::assertEquals([], AuditorRunner::analyse($schema, $auditor)->getViolations());
 
 		$dbal->exec(
 		/** @lang MySQL */
@@ -101,8 +103,8 @@ INSERT INTO `all_types` (`char`, `varchar`, `tinytext`, `text`, `mediumtext`, `l
 SQL,
 		);
 
-		$report = $auditor->analyse()->getViolations();
-		self::assertEquals($report, $auditor->analyse()->getViolations());
+		$report = AuditorRunner::analyse($schema, $auditor)->getViolations();
+		self::assertEquals($report, AuditorRunner::analyse($schema, $auditor)->getViolations());
 		self::assertEquals([
 			new Violation(
 				$key,
@@ -140,6 +142,21 @@ SQL,
 				new ColumnViolationSource($db, null, 'full_table', 'string_null'),
 			),
 		], $report);
+
+		$dbal->exec(
+		/** @lang MySQL */
+			'CREATE TABLE `excluded_1` (`a` varchar(255) NULL)',
+		);
+		$dbal->exec(
+		/** @lang MySQL */
+			"INSERT INTO `excluded_1` (`a`) VALUES (''), (null)",
+		);
+
+		$excludingSchema = new SchemaProvider($dbal, (new TableExclude())->withPattern('^excluded_'));
+		$excludingAuditor = new MixedEmptyValuesMysqlAuditor($excludingSchema);
+		foreach (AuditorRunner::analyse($excludingSchema, $excludingAuditor)->getViolations() as $violation) {
+			self::assertStringNotContainsString('excluded_1', $violation->getMessage());
+		}
 	}
 
 	/**
@@ -169,7 +186,7 @@ SQL,
 				'Column [t][c] contains mixed empty values.',
 				new ColumnViolationSource($db, null, 't', 'c'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 	/**
@@ -187,7 +204,8 @@ SQL,
 		$shortcuts->createDatabase($db);
 		$shortcuts->useDatabase($db);
 
-		// Simulate a procedure left over from a run killed before cleanup(); createProcedure() must DROP it first.
+		// A stray procedure sharing the name of the old implementation's routine must not interfere with the
+		// procedure-free, profiler-driven analysis.
 		$dbal->exec(
 		/** @lang MySQL */
 			'CREATE PROCEDURE OrisaiDbAudit_FindMixedEmptyColumns() BEGIN END',
@@ -205,7 +223,7 @@ SQL,
 				'Column [t][c] contains mixed empty values.',
 				new ColumnViolationSource($db, null, 't', 'c'),
 			),
-		], $auditor->analyse()->getViolations());
+		], AuditorRunner::analyse($schema, $auditor)->getViolations());
 	}
 
 }
