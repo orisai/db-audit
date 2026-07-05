@@ -15,20 +15,30 @@ final class NextrasAdapter implements DbalAdapter
 
 	private Connection $connection;
 
-	private int $version;
+	private ?int $version = null;
 
 	public function __construct(Connection $connection)
 	{
 		$this->connection = $connection;
-		$this->connection->connect();
+	}
 
-		if (method_exists($connection->getDriver(), 'convertToSql')) {
-			$this->version = 1;
-		} elseif (method_exists($connection->getDriver(), 'convertBoolToSql')) {
-			$this->version = 2;
-		} else {
-			$this->version = 5;
+	// Driver escaping needs a live connection, so it is established on the first escape call instead of in
+	// the constructor; query()/exec() connect through nextras itself.
+	private function getVersion(): int
+	{
+		if ($this->version === null) {
+			$this->connection->connect();
+
+			if (method_exists($this->connection->getDriver(), 'convertToSql')) {
+				$this->version = 1;
+			} elseif (method_exists($this->connection->getDriver(), 'convertBoolToSql')) {
+				$this->version = 2;
+			} else {
+				$this->version = 5;
+			}
 		}
+
+		return $this->version;
 	}
 
 	public function query(string $sql): array
@@ -48,7 +58,7 @@ final class NextrasAdapter implements DbalAdapter
 
 	public function escapeString(string $value): string
 	{
-		if ($this->version >= 2) {
+		if ($this->getVersion() >= 2) {
 			return $this->connection->getDriver()->convertStringToSql($value);
 		}
 
@@ -62,11 +72,11 @@ final class NextrasAdapter implements DbalAdapter
 
 	public function escapeBool(bool $value): string
 	{
-		if ($this->version >= 5) {
+		if ($this->getVersion() >= 5) {
 			return $this->connection->getPlatform()->formatBool($value);
 		}
 
-		if ($this->version >= 2) {
+		if ($this->getVersion() >= 2) {
 			return $this->connection->getDriver()->convertBoolToSql($value);
 		}
 
@@ -75,11 +85,11 @@ final class NextrasAdapter implements DbalAdapter
 
 	public function escapeDateTime(DateTimeInterface $value): string
 	{
-		if ($this->version >= 5) {
+		if ($this->getVersion() >= 5) {
 			return $this->connection->getPlatform()->formatDateTime($value);
 		}
 
-		if ($this->version >= 2) {
+		if ($this->getVersion() >= 2) {
 			return $this->connection->getDriver()->convertDateTimeToSql($value);
 		}
 
@@ -88,11 +98,11 @@ final class NextrasAdapter implements DbalAdapter
 
 	public function escapeIdentifier(string $value): string
 	{
-		if ($this->version >= 5) {
+		if ($this->getVersion() >= 5) {
 			return $this->connection->getPlatform()->formatIdentifier($value);
 		}
 
-		if ($this->version >= 2) {
+		if ($this->getVersion() >= 2) {
 			return $this->connection->getDriver()->convertIdentifierToSql($value);
 		}
 

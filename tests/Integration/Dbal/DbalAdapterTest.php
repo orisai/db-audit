@@ -5,7 +5,9 @@ namespace Tests\Orisai\DbAudit\Integration\Dbal;
 use DateTime;
 use DateTimeImmutable;
 use Dibi\Connection as DibiConnection;
+use Dibi\DriverException as DibiDriverException;
 use Nextras\Dbal\Connection as NextrasConnection;
+use Nextras\Dbal\Drivers\Exception\DriverException as NextrasDriverException;
 use Orisai\DbAudit\Dbal\DbalAdapter;
 use Orisai\DbAudit\Dbal\DibiAdapter;
 use Orisai\DbAudit\Dbal\NextrasAdapter;
@@ -80,6 +82,42 @@ final class DbalAdapterTest extends TestCase
 		self::assertSame('`any`', $dbal->escapeIdentifier('any'));
 		self::assertSame('`true`', $dbal->escapeIdentifier('true'));
 		self::assertSame('`select`', $dbal->escapeIdentifier('select'));
+	}
+
+	public function testDibiConstructorDoesNotConnect(): void
+	{
+		$config = new MysqlConnectionConfig('127.0.0.1', 'root', 'root', 1);
+		$dbal = new DibiAdapter(new DibiConnection($config->toDibi()));
+
+		self::assertSame('1', $dbal->escapeInt(1));
+
+		$this->expectException(DibiDriverException::class);
+		$dbal->query('SELECT 1');
+	}
+
+	public function testNextrasConstructorDoesNotConnect(): void
+	{
+		$config = new MysqlConnectionConfig('127.0.0.1', 'root', 'root', 1);
+		$dbal = new NextrasAdapter(new NextrasConnection($config->toNextras()));
+
+		self::assertSame('1', $dbal->escapeInt(1));
+
+		$this->expectException(NextrasDriverException::class);
+		$dbal->query('SELECT 1');
+	}
+
+	public function testDibiEscapesBeforeFirstQuery(): void
+	{
+		$dbal = new DibiAdapter(new DibiConnection($this->getConfig()->toDibi()));
+
+		self::assertSame("'any'", $dbal->escapeString('any'));
+	}
+
+	public function testNextrasEscapesBeforeFirstQuery(): void
+	{
+		$dbal = new NextrasAdapter(new NextrasConnection($this->getConfig()->toNextras()));
+
+		self::assertSame("'any'", $dbal->escapeString('any'));
 	}
 
 }
